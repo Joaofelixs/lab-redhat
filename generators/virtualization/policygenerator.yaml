@@ -1,0 +1,15 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: PolicyGenerator
+metadata:
+  name: generator-install-virtualization
+policyDefaults:
+  namespace: policies-acm
+  remediationAction: enforce
+  severity: medium
+  placement:
+    placementName: placement-gitops-apps
+policies:
+  - name: policy-install-virtualization
+    manifests:
+      - path: manifests/operator.yaml
+      - path: manifests/hyperconverged.yaml

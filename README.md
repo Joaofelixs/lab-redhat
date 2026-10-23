@@ -8,6 +8,8 @@ Um único repositório: **https://github.com/Joaofelixs/lab-redhat.git**. As pas
 |---|---|---|
 | **`generators/gatekeeper/`** | PolicyGenerator e manifests usados como entrada para instalar o Gatekeeper | Editar localmente e gerar a policy. Não usar como Path da Application atual. |
 | **`policies/gatekeeper/`** | Policy ACM e PlacementBinding gerados, prontos para aplicar | **Path do Argo CD para instalar Gatekeeper via ACM.** |
+| `generators/virtualization/` | PolicyGenerator e manifests do OpenShift Virtualization | Editar as fontes e gerar a policy. |
+| `policies/virtualization/` | Policy ACM e PlacementBinding para instalar Virtualization | Path do Argo CD: `policies/virtualization`. |
 | `policies/ns/` | Policy de auditoria da label gatekeeper e seu PlacementBinding | Path de uma Application separada para verificar namespaces. Não instala Gatekeeper. |
 | `policies/acm/` | Binding do ClusterSet infra, Placement compartilhado e policy do RolloutManager | Prepara seleção de clusters e instala o controller de Rollouts. |
 | `bootstrap/` | Namespaces e Subscription do OpenShift GitOps Operator | Preparação inicial de um ambiente novo. Não é a instalação do Gatekeeper. |
@@ -136,3 +138,47 @@ git diff --check
 ```
 
 Nunca sincronize a raiz inteira deste repositório: existem fontes de generators, policies para o hub e manifests de aplicações com ciclos de instalação distintos.
+
+## OpenShift Virtualization via PolicyGenerator
+
+As fontes ficam em `generators/virtualization/`. A instalação cria o namespace
+`openshift-cnv`, OperatorGroup, Subscription `kubevirt-hyperconverged` no canal
+`stable` e a instância `HyperConverged/kubevirt-hyperconverged`.
+O canal foi conferido no catálogo Red Hat do lab OpenShift 4.22.
+
+```bash
+./scripts/generate-virtualization-policy.sh
+./scripts/generate-virtualization-policy.sh --check
+```
+
+Para distribuir via Argo CD/ACM:
+
+| Campo | Valor |
+|---|---|
+| Nome sugerido | `infra-virtualization-policy` |
+| Projeto | `infra` |
+| Repositório | `https://github.com/Joaofelixs/lab-redhat.git` |
+| Revision | `main` |
+| Path | `policies/virtualization` |
+| Remote namespace | `policies-acm` |
+
+A Application entrega a Policy no hub. O Placement existente
+`policies-acm/placement-gitops-apps` seleciona os clusters que receberão a
+instalação; esta pasta não cria outro Placement. Confira os clusters selecionados
+antes de sincronizar. O ACM pode reportar NonCompliant temporariamente enquanto
+OLM instala o operador e registra a CRD HyperConverged.
+
+Verifique a conclusão no cluster de destino:
+
+```bash
+oc get csv -n openshift-cnv
+oc get hyperconverged kubevirt-hyperconverged -n openshift-cnv
+oc get pods -n openshift-cnv
+```
+
+A presença dos objetos na Policy não comprova que todos os componentes estão
+prontos: confira as condições Available=True, Progressing=False e Degraded=False
+do HyperConverged. Para executar VMs, os nós precisam oferecer virtualização de
+hardware (ou nested virtualization no lab) e armazenamento adequado.
+
+Referência: [instalação do OpenShift Virtualization 4.22](https://docs.redhat.com/en/documentation/openshift_container_platform/4.22/html/virtualization/installing).
