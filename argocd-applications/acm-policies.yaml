@@ -1,0 +1,20 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: acm-policies
+  namespace: openshift-gitops
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Joaofelixs/lab-redhat.git
+    targetRevision: main
+    path: policies/acm
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: policies-acm
+  syncPolicy:
+    automated:
+      prune: false
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true

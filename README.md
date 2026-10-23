@@ -17,7 +17,7 @@ Preparado para o laboratório OpenShift 4.22.15 com ACM 2.17.3. O canal GitOps 1
 ## Antes de instalar
 
 1. Autenticar o `oc` com permissões administrativas e confirmar o contexto.
-2. Ter ACM/MCE saudáveis, `local-cluster` disponível e pertencente ao ManagedClusterSet `default`.
+2. Ter ACM/MCE saudáveis, `local-cluster` disponível e pertencente ao ManagedClusterSet `infra`.
 3. Ter os addons de governança e application-manager do ACM funcionando no local-cluster.
 4. Ter acesso dos nós a registry.redhat.io e quay.io, além de acesso do Argo CD ao GitHub.
 5. Verificar capacidade para Argo CD, Rollouts e as duas versões das aplicações durante atualizações.
@@ -28,6 +28,29 @@ O repositório é público: leitura pelo Argo CD não precisa de PAT. Nenhuma cr
 As aplicações usam duas réplicas e requests de 10m CPU/32Mi por pod; os limites de memória são 128Mi. Esses são valores iniciais para a demo, não dimensionamento de produção. A instância Argo CD também usa requests reduzidos. O bootstrap desabilita a instância Argo CD padrão para evitar duplicação no lab.
 
 O binding `lab-gitops-apps-admin` concede cluster-admin ao application-controller para reproduzir a integração via ACM neste laboratório. O AppProject restringe os repositórios, namespaces e tipos de recursos das aplicações. Revise o RBAC antes de reutilizar fora do lab.
+
+## Entregar as policies pelo Argo CD do cluster local
+
+Para o cluster local, o local-cluster pertence ao ClusterSet `infra`. Os bindings e Placements do repositório usam esse set. O Placement das policies mantém o nome existente `placement-gitops-apps`, no namespace `policies-acm`; sincronizar atualiza esse objeto em vez de criar outro Placement com outro nome.
+
+No Argo CD existente em `openshift-gitops`, crie uma Application com:
+
+- Nome: `acm-policies`.
+- Projeto: `default`.
+- Repositório: `https://github.com/Joaofelixs/lab-redhat.git`.
+- Revisão: `main`.
+- Caminho: `policies/acm`.
+- Destino: `https://kubernetes.default.svc`.
+- Namespace de destino: `policies-acm`.
+- Sync option: `CreateNamespace=true`.
+
+O manifesto equivalente está em `argocd-applications/acm-policies.yaml`, fora da pasta sincronizada. É possível criá-lo pela interface ou aplicar esse único arquivo no hub. Ele habilita selfHeal, mas deixa prune desabilitado para não excluir recursos compartilhados por remoções acidentais no Git.
+
+A pasta `policies/acm` já contém YAMLs prontos e um kustomization.yaml: não requer o plugin PolicyGenerator. A sincronização cria/atualiza o binding do ClusterSet infra, o Placement, a policy do RolloutManager e seu PlacementBinding. A policy anterior que cria gitops-apps não é removida nem incorporada por esta Application.
+
+Confirme que o cluster possui as labels `vendor=OpenShift` e `gitops-apps=true`, e que o GitOps Operator e a namespace openshift-gitops já existem no destino. Aguarde a policy `policy-rollouts-manager` ficar Compliant. Esta Application não cria a instância dedicada gitops-apps nem as aplicações de demonstração; essas continuam nas etapas seguintes.
+
+Depois de adotar o Placement pelo Argo CD, mantenha seu estado neste repositório. Evite reaplicar uma versão local do PolicyGenerator que altere o mesmo Placement, pois selfHeal restaurará a configuração do Git. Não aponte esta Application para a raiz do repositório.
 
 ## Instalação em etapas
 
@@ -40,12 +63,12 @@ oc config current-context
 oc get multiclusterhub -A
 oc get multiclusterengine
 oc get managedcluster local-cluster
-oc get managedclusterset default
+oc get managedclusterset infra
 oc get managedclusteraddon -n local-cluster
 oc adm top nodes
 ```
 
-Corrija componentes indisponíveis antes de prosseguir. O local-cluster precisa ter label `vendor=OpenShift` e vínculo ao cluster set default.
+Corrija componentes indisponíveis antes de prosseguir. O local-cluster precisa ter label `vendor=OpenShift` e vínculo ao cluster set infra.
 
 ### 2. Instalar o GitOps Operator
 

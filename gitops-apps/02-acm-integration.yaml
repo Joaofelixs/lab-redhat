@@ -2,10 +2,10 @@
 apiVersion: cluster.open-cluster-management.io/v1beta2
 kind: ManagedClusterSetBinding
 metadata:
-  name: default
+  name: infra
   namespace: gitops-apps
 spec:
-  clusterSet: default
+  clusterSet: infra
 ---
 apiVersion: cluster.open-cluster-management.io/v1beta1
 kind: Placement
@@ -14,7 +14,7 @@ metadata:
   namespace: gitops-apps
 spec:
   clusterSets:
-  - default
+  - infra
   predicates:
   - requiredClusterSelector:
       labelSelector:
