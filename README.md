@@ -145,7 +145,7 @@ oc get route stable -n rollouts-canary -o yaml
 kubectl argo rollouts promote rollouts-canary -n rollouts-canary
 ```
 
-Depois da promoção, os pesos avançam para 40%, 60%, 80% e finalmente 100%. Duas réplicas bastam porque os pesos são controlados pela Route; a porcentagem não representa uma contagem exata de pods ou garantia de distribuição em poucas requisições.
+Depois da primeira promoção, os pesos avançam para 40% e 60%. Em 60% há outra pausa manual: valide a versão e execute novamente o comando de promoção (ou Resume na interface do Argo CD). Depois, o rollout avança para 80% e finalmente 100%. Duas réplicas bastam porque os pesos são controlados pela Route; a porcentagem não representa uma contagem exata de pods ou garantia de distribuição em poucas requisições.
 
 O Argo CD ignora os pesos da Route e os selectors de revisão dos Services. RespectIgnoreDifferences=true também faz a sincronização respeitar esses campos. As anotações da Route desabilitam cookies de afinidade e usam roundrobin para facilitar a observação.
 
