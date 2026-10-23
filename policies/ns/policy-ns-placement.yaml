@@ -22,7 +22,6 @@ spec:
           compliant: Todas as namespaces verificadas possuem a label "gatekeeper".
           noncompliant: |
             Existem namespaces sem a label "gatekeeper".
-            {{ .DefaultMessage }}
         remediationAction: inform
         severity: medium
         object-templates-raw: |
