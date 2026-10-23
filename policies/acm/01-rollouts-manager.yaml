@@ -1,0 +1,32 @@
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata:
+  name: policy-rollouts-manager
+  namespace: policies-acm
+spec:
+  disabled: false
+  remediationAction: enforce
+  policy-templates:
+  - objectDefinition:
+      apiVersion: policy.open-cluster-management.io/v1
+      kind: ConfigurationPolicy
+      metadata:
+        name: policy-rollouts-manager
+      spec:
+        remediationAction: enforce
+        severity: medium
+        object-templates:
+        - complianceType: musthave
+          objectDefinition:
+            apiVersion: argoproj.io/v1alpha1
+            kind: RolloutManager
+            metadata:
+              name: cluster
+              namespace: openshift-gitops
+            spec:
+              namespaceScoped: false
+              plugins:
+                trafficManagement:
+                - name: argoproj-labs/openshift
+                  location: file:/plugins/rollouts-trafficrouter-openshift/openshift-route-plugin

@@ -1,0 +1,49 @@
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: rollouts-bluegreen
+  namespace: rollouts-bluegreen
+spec:
+  replicas: 2
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      app: rollouts-bluegreen
+  template:
+    metadata:
+      labels:
+        app: rollouts-bluegreen
+    spec:
+      containers:
+      - name: demo
+        image: quay.io/openshiftdemos/rollouts-demo:blue
+        ports:
+        - name: http
+          containerPort: 8080
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            memory: 128Mi
+        readinessProbe:
+          httpGet:
+            path: /
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          runAsNonRoot: true
+          seccompProfile:
+            type: RuntimeDefault
+  strategy:
+    blueGreen:
+      activeService: active
+      previewService: preview
+      autoPromotionEnabled: false
+      scaleDownDelaySeconds: 30

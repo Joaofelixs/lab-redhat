@@ -1,0 +1,8 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- 00-rbac.yaml
+- 01-argocd.yaml
+- 02-acm-integration.yaml
+- 03-project.yaml
+- 04-applicationset.yaml

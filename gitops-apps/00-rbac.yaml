@@ -1,0 +1,42 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: lab-gitops-apps-admin
+subjects:
+- kind: ServiceAccount
+  name: gitops-apps-argocd-application-controller
+  namespace: gitops-apps
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: applicationset-placement-reader
+  namespace: gitops-apps
+rules:
+- apiGroups:
+  - cluster.open-cluster-management.io
+  resources:
+  - placementdecisions
+  verbs:
+  - get
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: applicationset-placement-reader
+  namespace: gitops-apps
+subjects:
+- kind: ServiceAccount
+  name: gitops-apps-applicationset-controller
+  namespace: gitops-apps
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: applicationset-placement-reader

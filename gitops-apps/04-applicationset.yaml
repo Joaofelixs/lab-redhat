@@ -1,0 +1,54 @@
+---
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: rollouts
+  namespace: gitops-apps
+spec:
+  generators:
+  - matrix:
+      generators:
+      - clusterDecisionResource:
+          configMapRef: acm-placement
+          labelSelector:
+            matchLabels:
+              cluster.open-cluster-management.io/placement: apps-ocp-placement
+          requeueAfterSeconds: 60
+      - list:
+          elements:
+          - app: rollout-canary
+            path: apps/canary
+            namespace: rollouts-canary
+          - app: rollout-bluegreen
+            path: apps/bluegreen
+            namespace: rollouts-bluegreen
+  template:
+    metadata:
+      name: '{{app}}-{{name}}'
+    spec:
+      project: rollouts-lab
+      source:
+        repoURL: https://github.com/Joaofelixs/lab-redhat.git
+        targetRevision: main
+        path: '{{path}}'
+      destination:
+        server: '{{server}}'
+        namespace: '{{namespace}}'
+      ignoreDifferences:
+      - group: route.openshift.io
+        kind: Route
+        name: stable
+        namespace: rollouts-canary
+        jsonPointers:
+        - /spec/to/weight
+        - /spec/alternateBackends
+      - group: ''
+        kind: Service
+        jqPathExpressions:
+        - .spec.selector."rollouts-pod-template-hash"
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+        - RespectIgnoreDifferences=true

@@ -1,0 +1,22 @@
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: rollouts-lab
+  namespace: gitops-apps
+spec:
+  description: Canary e blue-green no lab via ACM
+  sourceRepos:
+  - https://github.com/Joaofelixs/lab-redhat.git
+  destinations:
+  - server: '*'
+    namespace: rollouts-canary
+  - server: '*'
+    namespace: rollouts-bluegreen
+  namespaceResourceWhitelist:
+  - group: argoproj.io
+    kind: Rollout
+  - group: ''
+    kind: Service
+  - group: route.openshift.io
+    kind: Route
