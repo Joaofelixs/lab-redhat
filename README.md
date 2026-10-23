@@ -203,3 +203,11 @@ Publicar estes arquivos no Git não instala o ambiente sozinho. O bootstrap, a i
 - [CLI Argo Rollouts](https://argo-rollouts.readthedocs.io/en/stable/installation/#kubectl-plugin-installation)
 
 O plugin argoproj-labs/openshift é integrado ao operador e não deve ser redefinido em spec.plugins do RolloutManager. Os Rollouts das aplicações continuam referenciando o plugin em trafficRouting.
+
+## Policy de labels de namespaces
+
+A pasta `policies/ns` contém a policy em modo inform e seu PlacementBinding. Ela apenas referencia `policies-acm/placement-gitops-apps`, gerenciado exclusivamente pela Application de infraestrutura em `policies/acm`.
+
+A verificação ignora nomes iniciados por `openshift`, `kube-`, `cert-` e `default`, e reporta namespaces restantes sem a chave de label `gatekeeper`, com qualquer valor. Prefixos são avaliados por Go templates em object-templates-raw; NotIn não suporta curingas.
+
+Mantenha remediationAction: inform: os objetos mustnothave representam namespaces em violação, e enforce poderia removê-las. Não inclua o Placement na saída do generator desta policy: utilize placementName para referenciá-lo.

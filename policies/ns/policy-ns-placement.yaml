@@ -2,78 +2,65 @@
 apiVersion: policy.open-cluster-management.io/v1
 kind: Policy
 metadata:
-    annotations:
-        policy.open-cluster-management.io/categories: CM Configuration Management
-        policy.open-cluster-management.io/controls: CM-2 Baseline Configuration
-        policy.open-cluster-management.io/description: ""
-        policy.open-cluster-management.io/standards: NIST SP 800-53
-    name: policy-namespace-gitops-apps
-    namespace: policies-acm
+  annotations:
+    policy.open-cluster-management.io/categories: CM Configuration Management
+    policy.open-cluster-management.io/controls: CM-2 Baseline Configuration
+    policy.open-cluster-management.io/description: ''
+    policy.open-cluster-management.io/standards: NIST SP 800-53
+  name: policy-namespace-gitops-apps
+  namespace: policies-acm
 spec:
-    disabled: false
-    policy-templates:
-        - objectDefinition:
-            apiVersion: policy.open-cluster-management.io/v1
-            kind: ConfigurationPolicy
-            metadata:
-                name: namespace-label-gatekeeper
-            spec:
-                customMessage:
-                    compliant: Todas as namespaces verificadas possuem a label "gatekeeper".
-                    noncompliant: |
-                        Existem namespaces sem a label "gatekeeper".
-                        {{ .DefaultMessage }}
-                object-templates:
-                    - complianceType: mustnothave
-                      objectDefinition:
-                        apiVersion: v1
-                        kind: Namespace
-                      objectSelector:
-                        matchExpressions:
-                            - key: gatekeeper
-                              operator: DoesNotExist
-                            - key: kubernetes.io/metadata.name
-                              operator: NotIn
-                              values:
-                                - cert-manager
-                                - cert-manager-operator
-                                - default
-                                - kube-system
-                                - kube-public
-                                - kube-node-lease
-                                - openshift
-                remediationAction: inform
-                severity: medium
-    remediationAction: inform
----
-apiVersion: cluster.open-cluster-management.io/v1beta1
-kind: Placement
-metadata:
-    name: placement-gitops-apps
-    namespace: policies-acm
-spec:
-    predicates:
-        - requiredClusterSelector:
-            labelSelector:
-                matchLabels:
-                    gitops-apps: "true"
-                    vendor: OpenShift
-    tolerations:
-        - key: cluster.open-cluster-management.io/unavailable
-          operator: Exists
-        - key: cluster.open-cluster-management.io/unreachable
-          operator: Exists
+  disabled: false
+  policy-templates:
+  - objectDefinition:
+      apiVersion: policy.open-cluster-management.io/v1
+      kind: ConfigurationPolicy
+      metadata:
+        name: namespace-label-gatekeeper
+      spec:
+        customMessage:
+          compliant: Todas as namespaces verificadas possuem a label "gatekeeper".
+          noncompliant: |
+            Existem namespaces sem a label "gatekeeper".
+            {{ .DefaultMessage }}
+        remediationAction: inform
+        severity: medium
+        object-templates-raw: |
+          {{- $names := list }}
+          {{- range (lookup "v1" "Namespace" "" "" "!gatekeeper").items }}
+            {{- if not (or
+                (hasPrefix "openshift" .metadata.name)
+                (hasPrefix "kube-" .metadata.name)
+                (hasPrefix "cert-" .metadata.name)
+                (hasPrefix "default" .metadata.name)
+            ) }}
+              {{- $names = append $names .metadata.name }}
+            {{- end }}
+          {{- end }}
+          {{- if eq (len $names) 0 }}
+          []
+          {{- else }}
+          {{- range $names }}
+          - complianceType: mustnothave
+            objectDefinition:
+              apiVersion: v1
+              kind: Namespace
+              metadata:
+                name: {{ . | quote }}
+          {{- end }}
+          {{- end }}
+  remediationAction: inform
 ---
 apiVersion: policy.open-cluster-management.io/v1
 kind: PlacementBinding
 metadata:
-    name: binding-policy-namespace-gitops-apps
-    namespace: policies-acm
+  name: binding-policy-namespace-gitops-apps
+  namespace: policies-acm
 placementRef:
-    apiGroup: cluster.open-cluster-management.io
-    kind: Placement
-    name: placement-gitops-apps
+  apiGroup: cluster.open-cluster-management.io
+  kind: Placement
+  name: placement-gitops-apps
 subjects:
-    - apiGroup: policy.open-cluster-management.io
-      kind: Policy
-      name: policy-namespace-gitops-apps
+- apiGroup: policy.open-cluster-management.io
+  kind: Policy
+  name: policy-namespace-gitops-apps
