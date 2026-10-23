@@ -113,7 +113,7 @@ oc get rolloutmanager -n openshift-gitops
 oc get pods -n openshift-gitops
 ```
 
-Aguarde a policy Compliant e o RolloutManager disponível. Ele instala o controller em escopo de cluster e habilita explicitamente o plugin de tráfego das Routes do OpenShift. Ele fica fora das aplicações, evitando duas Applications controlando o mesmo recurso.
+Aguarde a policy Compliant e o RolloutManager disponível. Ele instala o controller em escopo de cluster e usa o plugin de tráfego das Routes do OpenShift integrado ao operador. Ele fica fora das aplicações, evitando duas Applications controlando o mesmo recurso.
 
 ### 5. Criar as aplicações
 
@@ -201,3 +201,5 @@ Publicar estes arquivos no Git não instala o ambiente sozinho. O bootstrap, a i
 - [Plugin OpenShift e RolloutManager — Red Hat GitOps 1.21](https://docs.redhat.com/en/documentation/red_hat_openshift_gitops/1.21/html/argo_rollouts/configuring_traffic_management_and_metric_plugins_in_argo_rollouts)
 - [RespectIgnoreDifferences — Argo CD](https://argo-cd.readthedocs.io/en/latest/user-guide/sync-options/#respect-ignore-differences-configs)
 - [CLI Argo Rollouts](https://argo-rollouts.readthedocs.io/en/stable/installation/#kubectl-plugin-installation)
+
+O plugin argoproj-labs/openshift é integrado ao operador e não deve ser redefinido em spec.plugins do RolloutManager. Os Rollouts das aplicações continuam referenciando o plugin em trafficRouting.

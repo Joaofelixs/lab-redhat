@@ -26,7 +26,3 @@ spec:
               namespace: openshift-gitops
             spec:
               namespaceScoped: false
-              plugins:
-                trafficManagement:
-                - name: argoproj-labs/openshift
-                  location: file:/plugins/rollouts-trafficrouter-openshift/openshift-route-plugin
