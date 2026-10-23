@@ -1,233 +1,138 @@
-# Canary e blue-green no OpenShift com ACM e Argo Rollouts
+# Lab Red Hat: ACM, Argo CD, Gatekeeper e Argo Rollouts
 
-Manifests para reproduzir o fluxo Git → Argo CD → Argo Rollouts, usando o ACM para selecionar o cluster e entregar o RolloutManager.
+Um único repositório: **https://github.com/Joaofelixs/lab-redhat.git**. As pastas são componentes diferentes do laboratório, não repositórios separados.
 
-Repositório: https://github.com/Joaofelixs/lab-redhat.git
+## Qual pasta faz o quê?
 
-Preparado para o laboratório OpenShift 4.22.15 com ACM 2.17.3. O canal GitOps 1.21 está disponível no catálogo consultado. Os manifests foram validados estaticamente; a instalação completa ainda precisa ser executada e validada no cluster.
+| Pasta | Conteúdo | Como usar |
+|---|---|---|
+| **`generators/gatekeeper/`** | PolicyGenerator e manifests usados como entrada para instalar o Gatekeeper | Editar localmente e gerar a policy. Não usar como Path da Application atual. |
+| **`policies/gatekeeper/`** | Policy ACM e PlacementBinding gerados, prontos para aplicar | **Path do Argo CD para instalar Gatekeeper via ACM.** |
+| `policies/ns/` | Policy de auditoria da label gatekeeper e seu PlacementBinding | Path de uma Application separada para verificar namespaces. Não instala Gatekeeper. |
+| `policies/acm/` | Binding do ClusterSet infra, Placement compartilhado e policy do RolloutManager | Prepara seleção de clusters e instala o controller de Rollouts. |
+| `bootstrap/` | Namespaces e Subscription do OpenShift GitOps Operator | Preparação inicial de um ambiente novo. Não é a instalação do Gatekeeper. |
+| `gitops-apps/` | Instância Argo CD dedicada às demos, RBAC, integração ACM e ApplicationSet | Opcional para reproduzir a separação do artigo. |
+| `apps/canary/` | Rollout canary, Services e Route | Path da aplicação de demonstração canary. |
+| `apps/bluegreen/` | Rollout blue-green, Services e Routes active/preview | Path da aplicação de demonstração blue-green. |
+| `argocd-applications/` | Exemplo de Application para policies/acm | Referência de bootstrap; não sincronizar junto de outra Application que gerencie os mesmos objetos. |
+| `scripts/` | Comando para gerar/conferir a policy do Gatekeeper | Executar localmente antes de publicar alterações nas fontes. |
 
-## Estrutura
+## Gatekeeper: fluxo usado neste lab
 
-- `bootstrap/`: namespaces e instalação do OpenShift GitOps Operator.
-- `gitops-apps/`: Argo CD dedicado, RBAC, integração ACM, AppProject e ApplicationSet.
-- `policies/acm/`: policy que instala um único RolloutManager em escopo de cluster.
-- `apps/canary/`: Rollout, Services e Route com divisão de tráfego.
-- `apps/bluegreen/`: Rollout, Services e Routes active/preview.
-
-## Antes de instalar
-
-1. Autenticar o `oc` com permissões administrativas e confirmar o contexto.
-2. Ter ACM/MCE saudáveis, `local-cluster` disponível e pertencente ao ManagedClusterSet `infra`.
-3. Ter os addons de governança e application-manager do ACM funcionando no local-cluster.
-4. Ter acesso dos nós a registry.redhat.io e quay.io, além de acesso do Argo CD ao GitHub.
-5. Verificar capacidade para Argo CD, Rollouts e as duas versões das aplicações durante atualizações.
-6. Conferir compatibilidade/suporte do canal GitOps escolhido para a versão do OpenShift antes da instalação.
-
-O repositório é público: leitura pelo Argo CD não precisa de PAT. Nenhuma credencial deve ser versionada.
-
-As aplicações usam duas réplicas e requests de 10m CPU/32Mi por pod; os limites de memória são 128Mi. Esses são valores iniciais para a demo, não dimensionamento de produção. A instância Argo CD também usa requests reduzidos. O bootstrap desabilita a instância Argo CD padrão para evitar duplicação no lab.
-
-O binding `lab-gitops-apps-admin` concede cluster-admin ao application-controller para reproduzir a integração via ACM neste laboratório. O AppProject restringe os repositórios, namespaces e tipos de recursos das aplicações. Revise o RBAC antes de reutilizar fora do lab.
-
-## Entregar as policies pelo Argo CD do cluster local
-
-Para o cluster local, o local-cluster pertence ao ClusterSet `infra`. Os bindings e Placements do repositório usam esse set. O Placement das policies mantém o nome existente `placement-gitops-apps`, no namespace `policies-acm`; sincronizar atualiza esse objeto em vez de criar outro Placement com outro nome.
-
-No Argo CD existente em `openshift-gitops`, crie uma Application com:
-
-- Nome: `acm-policies`.
-- Projeto: `default`.
-- Repositório: `https://github.com/Joaofelixs/lab-redhat.git`.
-- Revisão: `main`.
-- Caminho: `policies/acm`.
-- Destino: `https://kubernetes.default.svc`.
-- Namespace de destino: `policies-acm`.
-- Sync option: `CreateNamespace=true`.
-
-O manifesto equivalente está em `argocd-applications/acm-policies.yaml`, fora da pasta sincronizada. É possível criá-lo pela interface ou aplicar esse único arquivo no hub. Ele habilita selfHeal, mas deixa prune desabilitado para não excluir recursos compartilhados por remoções acidentais no Git.
-
-A pasta `policies/acm` já contém YAMLs prontos e um kustomization.yaml: não requer o plugin PolicyGenerator. A sincronização cria/atualiza o binding do ClusterSet infra, o Placement, a policy do RolloutManager e seu PlacementBinding. A policy anterior que cria gitops-apps não é removida nem incorporada por esta Application.
-
-Confirme que o cluster possui as labels `vendor=OpenShift` e `gitops-apps=true`, e que o GitOps Operator e a namespace openshift-gitops já existem no destino. Aguarde a policy `policy-rollouts-manager` ficar Compliant. Esta Application não cria a instância dedicada gitops-apps nem as aplicações de demonstração; essas continuam nas etapas seguintes.
-
-Depois de adotar o Placement pelo Argo CD, mantenha seu estado neste repositório. Evite reaplicar uma versão local do PolicyGenerator que altere o mesmo Placement, pois selfHeal restaurará a configuração do Git. Não aponte esta Application para a raiz do repositório.
-
-## Instalação em etapas
-
-Os comandos abaixo são para execução manual. Não aplique recursivamente a raiz: CRDs e controllers precisam existir antes dos recursos dependentes.
-
-### 1. Validar a base
-
-```bash
-oc config current-context
-oc get multiclusterhub -A
-oc get multiclusterengine
-oc get managedcluster local-cluster
-oc get managedclusterset infra
-oc get managedclusteraddon -n local-cluster
-oc adm top nodes
+```text
+generators/gatekeeper/               fontes editáveis
+          |
+          | scripts/generate-gatekeeper-policy.sh
+          v
+policies/gatekeeper/                 YAML gerado e versionado
+          |
+          | Argo CD
+          v
+Policy + PlacementBinding no hub ACM, em policies-acm
+          |
+          | ACM seleciona os clusters pelo Placement
+          v
+Namespace + OperatorGroup + Subscription + instância Gatekeeper
 ```
 
-Corrija componentes indisponíveis antes de prosseguir. O local-cluster precisa ter label `vendor=OpenShift` e vínculo ao cluster set infra.
+A pasta antiga `gatekeeper/manifests` foi movida para **`generators/gatekeeper/manifests`**. Ela contém os recursos que serão colocados dentro da policy. Apontar o Argo CD diretamente para esses manifests pula o ACM e pode tentar criar o recurso Gatekeeper antes de a CRD existir.
 
-### 2. Instalar o GitOps Operator
+### Configuração da Application na console do ACM
 
-```bash
-oc apply -k bootstrap/
-oc get subscription -n openshift-gitops-operator
-oc get csv -n openshift-gitops-operator
-oc get crd argocds.argoproj.io rolloutmanagers.argoproj.io
+| Campo | Valor |
+|---|---|
+| Nome do ApplicationSet mantido | `infra-gatekeeper-policy` |
+| Projeto Argo CD | `infra` |
+| Repositório | `https://github.com/Joaofelixs/lab-redhat.git` |
+| Branch | `main` |
+| **Path** | **`policies/gatekeeper`** |
+| Remote namespace | `policies-acm` |
+| Cluster selecionado neste lab | `local-cluster` |
+
+No workshop, a instância Argo CD se chama `argocd` e fica em `openshift-gitops-operator`. No cluster local anterior, ela fica em `openshift-gitops`. Use o namespace da instância do ambiente em que estiver conectado.
+
+Se o ACM gerar `project: default`, ajuste `spec.template.spec.project: infra` no ApplicationSet. Para entregar as policies no próprio hub, use `spec.template.spec.destination.server: https://kubernetes.default.svc`. O projeto infra precisa existir e permitir o repositório e o destino.
+
+**Mantenha uma única Application para policies/gatekeeper.** No workshop, foi mantida `infra-gatekeeper-policy-local-cluster`; o cadastro duplicado `infra-gatekeeper-install` foi removido sem excluir os recursos instalados. Não crie os dois novamente.
+
+O controller do ApplicationSet deve estar habilitado na instância ArgoCD e ter permissão de leitura das PlacementDecisions. A instância precisa gerenciar o namespace policies-acm. Esses são pré-requisitos da integração, além do registro do cluster pelo GitOpsCluster.
+
+### Arquivos de entrada do generator
+
+```text
+generators/gatekeeper/
+├── kustomization.yaml
+├── policygenerator.yaml
+└── manifests/
+    ├── operator.yaml       # Namespace, OperatorGroup e Subscription
+    └── gatekeeper.yaml     # CR Gatekeeper, não uma regra de bloqueio
 ```
 
-Aguarde o CSV ficar Succeeded e as CRDs disponíveis. A Subscription instala automaticamente atualizações dentro do canal gitops-1.21. Não cria RolloutManager: essa responsabilidade será da policy ACM.
+O pacote `gatekeeper-operator-product` e o canal `3.21` foram conferidos no catálogo Red Hat do lab. O generator usa `enforce` para instalar os recursos e `placementName: placement-gitops-apps` para reutilizar o Placement em policies-acm. Ele não gera outro Placement.
 
-### 3. Criar o Argo CD e a integração ACM
+### Como atualizar a instalação
 
-```bash
-oc apply -f gitops-apps/00-rbac.yaml
-oc apply -f gitops-apps/01-argocd.yaml
-oc apply -f gitops-apps/02-acm-integration.yaml
-oc apply -f gitops-apps/03-project.yaml
-oc label managedcluster local-cluster gitops-apps=true --overwrite
-oc get argocd -n gitops-apps
-oc get pods -n gitops-apps
-oc get placementdecision -n gitops-apps
-oc get gitopscluster -n gitops-apps
-oc get configmap acm-placement -n gitops-apps
-oc get secret -n gitops-apps -l argocd.argoproj.io/secret-type=cluster
-oc get route -n gitops-apps
+1. Edite os arquivos em **`generators/gatekeeper/`**.
+2. Execute, a partir da raiz do repositório:
+
+   ```bash
+   ./scripts/generate-gatekeeper-policy.sh
+   ./scripts/generate-gatekeeper-policy.sh --check
+   git diff -- generators/gatekeeper policies/gatekeeper
+   ```
+
+3. Faça commit das **fontes e da saída gerada** e publique na main.
+4. O Argo CD sincroniza a policy e o ACM atualiza os clusters selecionados.
+
+O comando usa `oc kustomize --enable-alpha-plugins` e exige o executável PolicyGenerator instalado localmente. Não é necessário configurar esse plugin no repo-server, pois a Application lê somente os YAMLs gerados.
+
+Para Linux amd64, o executável usado neste lab é o [PolicyGenerator v1.19.0](https://github.com/open-cluster-management-io/policy-generator-plugin/releases/tag/v1.19.0). Sua localização padrão é:
+
+```text
+~/.config/kustomize/plugin/policy.open-cluster-management.io/v1/policygenerator/PolicyGenerator
 ```
 
-O GitOpsCluster registra os clusters selecionados pelo Placement no Argo CD. Confirme o local-cluster selecionado e os recursos de integração antes do ApplicationSet. O destino pode usar o endpoint do cluster-proxy do ACM.
+Se usar KUSTOMIZE_PLUGIN_HOME ou XDG_CONFIG_HOME, ajuste o diretório conforme essas variáveis. O executável deve ter permissão de execução.
 
-O login usa OAuth do OpenShift; os grupos system:cluster-admins e cluster-admins recebem role admin. Ajuste o mapeamento se o seu usuário não pertencer a esses grupos.
+O script gera em um arquivo temporário: se o plugin falhar, a policy versionada não é apagada. Não edite apenas a saída gerada, porque ela será substituída na próxima geração.
 
-### 4. Entregar o RolloutManager pelo ACM
-
-```bash
-oc apply -k policies/acm/
-oc get policy -n policies-acm
-oc get placementdecision -n policies-acm
-oc get policy -n local-cluster
-oc get rolloutmanager -n openshift-gitops
-oc get pods -n openshift-gitops
-```
-
-Aguarde a policy Compliant e o RolloutManager disponível. Ele instala o controller em escopo de cluster e usa o plugin de tráfego das Routes do OpenShift integrado ao operador. Ele fica fora das aplicações, evitando duas Applications controlando o mesmo recurso.
-
-### 5. Criar as aplicações
+### Como verificar
 
 ```bash
-oc apply -f gitops-apps/04-applicationset.yaml
-oc get applicationset -n gitops-apps
-oc get applications.argoproj.io -n gitops-apps
-oc get rollouts.argoproj.io -n rollouts-canary
-oc get rollouts.argoproj.io -n rollouts-bluegreen
-oc get pods,svc,route -n rollouts-canary
-oc get pods,svc,route -n rollouts-bluegreen
+oc get policy policy-install-gatekeeper -n policies-acm
+oc get subscription.operators.coreos.com -n openshift-gatekeeper-system
+oc get csv -n openshift-gatekeeper-system
+oc get gatekeeper gatekeeper
+oc get pods -n openshift-gatekeeper-system
 ```
 
-Esperado: duas Applications, uma para cada estratégia, inicialmente Synced e Healthy com a imagem blue. Os hosts das Routes são gerados pelo OpenShift.
+A policy Compliant confirma a presença dos recursos declarados. Verifique também o CSV Succeeded e os pods Ready para confirmar a instalação funcional.
 
-## Testar uma atualização
-
-Instale previamente o plugin oficial Argo Rollouts para kubectl, ou use as ações de promoção disponíveis na console. Os exemplos abaixo usam `kubectl argo rollouts` com o mesmo kubeconfig do oc.
-
-### Canary
-
-1. Altere somente a imagem em `apps/canary/00-rollout.yaml` de `:blue` para `:green`.
-2. Faça commit e push na main.
-3. Aguarde a Application sincronizar; o rollout deve pausar com 20% de peso para a versão nova.
-
-```bash
-kubectl argo rollouts get rollout rollouts-canary -n rollouts-canary
-oc get route stable -n rollouts-canary -o yaml
-kubectl argo rollouts promote rollouts-canary -n rollouts-canary
-```
-
-Depois da primeira promoção, os pesos avançam para 40% e 60%. Em 60% há outra pausa manual: valide a versão e execute novamente o comando de promoção (ou Resume na interface do Argo CD). Depois, o rollout avança para 80% e finalmente 100%. Duas réplicas bastam porque os pesos são controlados pela Route; a porcentagem não representa uma contagem exata de pods ou garantia de distribuição em poucas requisições.
-
-O Argo CD ignora os pesos da Route e os selectors de revisão dos Services. RespectIgnoreDifferences=true também faz a sincronização respeitar esses campos. As anotações da Route desabilitam cookies de afinidade e usam roundrobin para facilitar a observação.
-
-### Blue-green
-
-1. Altere somente a imagem em `apps/bluegreen/00-rollout.yaml` de `:blue` para `:green`.
-2. Faça commit e push na main.
-3. Compare as Routes active e preview. A nova versão deve aparecer em preview; active continua servindo a anterior.
-4. Promova manualmente:
-
-```bash
-kubectl argo rollouts get rollout rollouts-bluegreen -n rollouts-bluegreen
-kubectl argo rollouts promote rollouts-bluegreen -n rollouts-bluegreen
-```
-
-A Route active passa a servir green; a versão anterior é reduzida após o período configurado. Durante a pausa, Synced/Suspended pode ser o estado esperado, pois a promoção é manual.
-
-### Cancelar e voltar à versão anterior
-
-```bash
-kubectl argo rollouts abort rollouts-canary -n rollouts-canary
-# Ou para a outra aplicação:
-kubectl argo rollouts abort rollouts-bluegreen -n rollouts-bluegreen
-```
-
-Para manter a reversão no GitOps, reverta também o commit que trocou a imagem e publique o revert na main. Não confunda abortar o rollout em execução com alterar permanentemente o estado desejado no Git.
-
-## Validação e diagnóstico
-
-```bash
-oc kustomize bootstrap/
-oc kustomize gitops-apps/
-oc kustomize policies/acm/
-oc kustomize apps/canary/
-oc kustomize apps/bluegreen/
-oc get events -n rollouts-canary --sort-by=.lastTimestamp
-oc get events -n rollouts-bluegreen --sort-by=.lastTimestamp
-oc get pods -n openshift-gitops
-```
-
-- Pending sem nó: confira requests, taints e capacidade reservada.
-- ImagePullBackOff: confira acesso aos registries e mensagens dos eventos.
-- ApplicationSet sem Applications: confira PlacementDecision, acm-placement, RBAC e credenciais de cluster criadas pela integração.
-- Route retorna sempre uma cor: confira pesos, cookies e se o rollout está pausado.
-- Policy não Compliant: confira addons ACM, CRD RolloutManager e o GitOps Operator.
-- Rollout travado: confira eventos, readiness e logs do controller.
-
-Publicar estes arquivos no Git não instala o ambiente sozinho. O bootstrap, a instância Argo CD e a policy são iniciados manualmente nas etapas acima; depois, as aplicações são reconciliadas pelo Argo CD a partir da main.
-
-## Referências
-
-- [Artigo que motivou o laboratório](https://medium.com/@jorgelasquinha27/canary-e-blue-green-com-argo-rollouts-no-openshift-do-git-ao-promote-usando-argo-cd-e-acm-367a7ee3664f)
-- [Plugin OpenShift e RolloutManager — Red Hat GitOps 1.21](https://docs.redhat.com/en/documentation/red_hat_openshift_gitops/1.21/html/argo_rollouts/configuring_traffic_management_and_metric_plugins_in_argo_rollouts)
-- [RespectIgnoreDifferences — Argo CD](https://argo-cd.readthedocs.io/en/latest/user-guide/sync-options/#respect-ignore-differences-configs)
-- [CLI Argo Rollouts](https://argo-rollouts.readthedocs.io/en/stable/installation/#kubectl-plugin-installation)
-
-O plugin argoproj-labs/openshift é integrado ao operador e não deve ser redefinido em spec.plugins do RolloutManager. Os Rollouts das aplicações continuam referenciando o plugin em trafficRouting.
+**Instalar Gatekeeper ainda não bloqueia imagens latest.** Para isso, será necessário criar um ConstraintTemplate e uma Constraint de admissão em outra etapa.
 
 ## Policy de labels de namespaces
 
-A pasta `policies/ns` contém a policy em modo inform e seu PlacementBinding. Ela apenas referencia `policies-acm/placement-gitops-apps`, gerenciado exclusivamente pela Application de infraestrutura em `policies/acm`.
+`policies/ns` usa uma ConfigurationPolicy do ACM em modo **inform**. Ela ignora prefixos openshift, kube-, cert- e default e verifica a existência da label gatekeeper nas demais namespaces, com qualquer valor.
 
-A verificação ignora nomes iniciados por `openshift`, `kube-`, `cert-` e `default`, e reporta namespaces restantes sem a chave de label `gatekeeper`, com qualquer valor. Prefixos são avaliados por Go templates em object-templates-raw; NotIn não suporta curingas.
+Esta checagem não depende do Gatekeeper instalado. A mensagem de não conformidade é apenas: `Existem namespaces sem a label "gatekeeper".`
 
-Mantenha remediationAction: inform: os objetos mustnothave representam namespaces em violação, e enforce poderia removê-las. Não inclua o Placement na saída do generator desta policy: utilize placementName para referenciá-lo.
+Ela reutiliza o Placement compartilhado, sem gerenciá-lo. Apenas `policies/acm` deve declarar esse Placement. Não aponte duas Applications para os mesmos objetos.
 
-## Instalação do Gatekeeper por policy gerada
+## POC de canary e blue-green
 
-- Fontes do PolicyGenerator: `gatekeeper/`.
-- Saída gerada e consumida pelo Argo CD: `policies/gatekeeper/`.
-- ApplicationSet: `infra-gatekeeper-install`.
-- Projeto Argo CD: `infra`.
-- Destino no hub: `https://kubernetes.default.svc`, namespace `policies-acm`.
+Consulte o [roteiro de instalação e testes](docs/poc-rollouts.md). As Applications de demonstração continuam usando `apps/canary` e `apps/bluegreen`.
 
-Para atualizar a saída, com PolicyGenerator instalado no diretório de plugins do Kustomize:
+Canary tem pausas manuais em 20% e 60%. Blue-green mantém active e preview separados até a promoção. A imagem de cada aplicação é alterada no Git.
+
+## Validar antes do push
 
 ```bash
-oc kustomize gatekeeper/ --enable-alpha-plugins > /tmp/gatekeeper-policy.yaml
-# Após conferir o resultado:
-cp /tmp/gatekeeper-policy.yaml policies/gatekeeper/policy-install-gatekeeper.yaml
+./scripts/generate-gatekeeper-policy.sh --check
+oc kustomize policies/gatekeeper/
+oc kustomize policies/acm/
+oc kustomize apps/canary/
+oc kustomize apps/bluegreen/
+git diff --check
 ```
 
-Versione a fonte e a saída juntas. O repo-server não precisa executar o plugin porque sincroniza somente a saída gerada. Não aponte para `gatekeeper/manifests`: isso instalaria os recursos diretamente, sem a policy do ACM. O Placement é reutilizado por referência e não é gerado novamente.
-
-O canal 3.21 e o pacote gatekeeper-operator-product foram conferidos no catálogo do lab. A policy instala o operador e a instância Gatekeeper; nenhuma Constraint de bloqueio de imagens está incluída.
+Nunca sincronize a raiz inteira deste repositório: existem fontes de generators, policies para o hub e manifests de aplicações com ciclos de instalação distintos.

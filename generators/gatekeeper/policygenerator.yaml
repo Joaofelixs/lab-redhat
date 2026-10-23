@@ -1,0 +1,17 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: PolicyGenerator
+metadata:
+  name: generator-install-gatekeeper
+
+policyDefaults:
+  namespace: policies-acm
+  remediationAction: enforce
+  severity: medium
+  placement:
+    placementName: placement-gitops-apps
+
+policies:
+  - name: policy-install-gatekeeper
+    manifests:
+      - path: manifests/operator.yaml
+      - path: manifests/gatekeeper.yaml
