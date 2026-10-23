@@ -19,35 +19,17 @@ spec:
                 name: namespace-label-gatekeeper
             spec:
                 customMessage:
-                    compliant: Todas as namespaces verificadas possuem a label "gatekeeper".
-                    noncompliant: |
-                        Existem namespaces sem a label "gatekeeper".
-                        {{ .DefaultMessage }}
-                object-templates-raw: |
-                    {{- $names := list }}
-                    {{- range (lookup "v1" "Namespace" "" "" "!gatekeeper").items }}
-                      {{- if not (or
-                          (hasPrefix "openshift" .metadata.name)
-                          (hasPrefix "kube-" .metadata.name)
-                          (hasPrefix "cert-manager" .metadata.name)
-                          (hasPrefix "default" .metadata.name)
-                      ) }}
-                        {{- $names = append $names .metadata.name }}
-                      {{- end }}
-                    {{- end }}
-
-                    {{- if eq (len $names) 0 }}
-                    []
-                    {{- else }}
-                    {{- range $names }}
+                    compliant: Todas as namespaces possuem a label "gatekeeper".
+                    noncompliant: Namespace não possui a label "gatekeeper".
+                object-templates:
                     - complianceType: mustnothave
                       objectDefinition:
                         apiVersion: v1
                         kind: Namespace
-                        metadata:
-                          name: {{ . | quote }}
-                    {{- end }}
-                    {{- end }}
+                      objectSelector:
+                        matchExpressions:
+                            - key: gatekeeper
+                              operator: DoesNotExist
                 remediationAction: inform
                 severity: medium
     remediationAction: inform
