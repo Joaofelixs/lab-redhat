@@ -211,3 +211,23 @@ A pasta `policies/ns` contém a policy em modo inform e seu PlacementBinding. El
 A verificação ignora nomes iniciados por `openshift`, `kube-`, `cert-` e `default`, e reporta namespaces restantes sem a chave de label `gatekeeper`, com qualquer valor. Prefixos são avaliados por Go templates em object-templates-raw; NotIn não suporta curingas.
 
 Mantenha remediationAction: inform: os objetos mustnothave representam namespaces em violação, e enforce poderia removê-las. Não inclua o Placement na saída do generator desta policy: utilize placementName para referenciá-lo.
+
+## Instalação do Gatekeeper por policy gerada
+
+- Fontes do PolicyGenerator: `gatekeeper/`.
+- Saída gerada e consumida pelo Argo CD: `policies/gatekeeper/`.
+- ApplicationSet: `infra-gatekeeper-install`.
+- Projeto Argo CD: `infra`.
+- Destino no hub: `https://kubernetes.default.svc`, namespace `policies-acm`.
+
+Para atualizar a saída, com PolicyGenerator instalado no diretório de plugins do Kustomize:
+
+```bash
+oc kustomize gatekeeper/ --enable-alpha-plugins > /tmp/gatekeeper-policy.yaml
+# Após conferir o resultado:
+cp /tmp/gatekeeper-policy.yaml policies/gatekeeper/policy-install-gatekeeper.yaml
+```
+
+Versione a fonte e a saída juntas. O repo-server não precisa executar o plugin porque sincroniza somente a saída gerada. Não aponte para `gatekeeper/manifests`: isso instalaria os recursos diretamente, sem a policy do ACM. O Placement é reutilizado por referência e não é gerado novamente.
+
+O canal 3.21 e o pacote gatekeeper-operator-product foram conferidos no catálogo do lab. A policy instala o operador e a instância Gatekeeper; nenhuma Constraint de bloqueio de imagens está incluída.

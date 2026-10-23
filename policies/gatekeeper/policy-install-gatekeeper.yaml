@@ -1,0 +1,73 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: PlacementBinding
+metadata:
+  name: binding-policy-install-gatekeeper
+  namespace: policies-acm
+placementRef:
+  apiGroup: cluster.open-cluster-management.io
+  kind: Placement
+  name: placement-gitops-apps
+subjects:
+- apiGroup: policy.open-cluster-management.io
+  kind: Policy
+  name: policy-install-gatekeeper
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata:
+  annotations:
+    policy.open-cluster-management.io/categories: CM Configuration Management
+    policy.open-cluster-management.io/controls: CM-2 Baseline Configuration
+    policy.open-cluster-management.io/description: ""
+    policy.open-cluster-management.io/standards: NIST SP 800-53
+  name: policy-install-gatekeeper
+  namespace: policies-acm
+spec:
+  disabled: false
+  policy-templates:
+  - objectDefinition:
+      apiVersion: policy.open-cluster-management.io/v1
+      kind: ConfigurationPolicy
+      metadata:
+        name: policy-install-gatekeeper
+      spec:
+        object-templates:
+        - complianceType: musthave
+          objectDefinition:
+            apiVersion: v1
+            kind: Namespace
+            metadata:
+              name: openshift-gatekeeper-system
+        - complianceType: musthave
+          objectDefinition:
+            apiVersion: operators.coreos.com/v1
+            kind: OperatorGroup
+            metadata:
+              name: gatekeeper-operator
+              namespace: openshift-gatekeeper-system
+            spec: {}
+        - complianceType: musthave
+          objectDefinition:
+            apiVersion: operators.coreos.com/v1alpha1
+            kind: Subscription
+            metadata:
+              name: gatekeeper-operator
+              namespace: openshift-gatekeeper-system
+            spec:
+              channel: "3.21"
+              installPlanApproval: Automatic
+              name: gatekeeper-operator-product
+              source: redhat-operators
+              sourceNamespace: openshift-marketplace
+        - complianceType: musthave
+          objectDefinition:
+            apiVersion: operator.gatekeeper.sh/v1alpha1
+            kind: Gatekeeper
+            metadata:
+              name: gatekeeper
+            spec:
+              mutatingWebhook: Disabled
+              validatingWebhook: Enabled
+        remediationAction: enforce
+        severity: medium
+  remediationAction: enforce
