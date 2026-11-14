@@ -18,6 +18,7 @@ Um único repositório: **https://github.com/Joaofelixs/lab-redhat.git**. As pas
 | `apps/bluegreen/` | Rollout blue-green, Services e Routes active/preview | Path da aplicação de demonstração blue-green. |
 | `gitops-upgrades/` | AppProject e ApplicationSet para upgrades via ACM | Application piloto do local-cluster, com sincronizacao manual. |
 | `upgrades/ocp/` | ClusterCurator da campanha de upgrade | Nao sincronizar diretamente: a aplicacao gerada define o namespace do cluster no hub. |
+| `talm/` | Fluxo alternativo de upgrades por lotes com TALM e policies ACM | Somente arquivos no Git; CGUs desativados e Applications com sync manual. Guia: [HTML](talm/index.html). |
 | `argocd-applications/` | Exemplo de Application para policies/acm | Referência de bootstrap; não sincronizar junto de outra Application que gerencie os mesmos objetos. |
 | `scripts/` | Comando para gerar/conferir a policy do Gatekeeper | Executar localmente antes de publicar alterações nas fontes. |
 

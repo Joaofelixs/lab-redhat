@@ -1,0 +1,20 @@
+# Reference only: create this Application separately when TALM is installed.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: talm-upgrade-policies
+  namespace: openshift-gitops
+spec:
+  project: talm-upgrades
+  source:
+    repoURL: https://github.com/Joaofelixs/lab-redhat.git
+    targetRevision: main
+    path: talm/policies
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: talm-upgrades
+  syncPolicy:
+    automated:
+      enabled: false
+      prune: false
+      selfHeal: false

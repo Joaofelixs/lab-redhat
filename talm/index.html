@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TALM: atualizacao de clusters por lotes</title>
+  <style>
+    body { max-width: 960px; margin: auto; padding: 24px; font: 16px/1.6 system-ui,sans-serif; color: #20252b; }
+    h1 { font-size: 28px; } h2 { font-size: 21px; margin-top: 28px; }
+    pre { background: #f2f4f6; padding: 16px; overflow: auto; }
+    code { overflow-wrap: anywhere; } pre code { overflow-wrap: normal; }
+    a { color: #005ea8; }
+  </style>
+</head>
+<body>
+<h1>TALM: atualizacao de clusters por lotes</h1>
+<p><strong>Conteudo somente no Git.</strong> Nenhum arquivo desta pasta foi
+aplicado no cluster. O fluxo anterior de ClusterCurator continua separado.</p>
+<h2>Estrutura</h2>
+<ul>
+  <li><code>operator/</code>: Subscription TALM, canal 4.18 e aprovacao manual
+  de InstallPlan. Reavalie o canal conforme a versao do hub antes de instalar.</li>
+  <li><code>bootstrap/</code>: namespace talm-upgrades, AppProject e RBAC restrito
+  para o controller do Argo CD. O bootstrap exige um administrador; o projeto
+  de campanhas nao permite criar suas proprias permissoes.</li>
+  <li><code>policies/</code>: selecao de clusters e duas policies ACM em inform,
+  uma para 4.19.55 e outra para 4.20.46.</li>
+  <li><code>campaigns/</code>: dois ClusterGroupUpgrade desativados. Cada salto
+  executa um cluster por vez e interrompe novos lotes em caso de timeout.</li>
+  <li><code>applications/</code>: duas Applications de referencia, ambas com
+  auto-sync desligado, sem prune e sem selfHeal.</li>
+</ul>
+<h2>Como funciona</h2>
+<pre><code>Git → Argo CD → policies ACM (inform)
+                    ↓
+       ClusterGroupUpgrade aprovado (enable: true)
+                    ↓
+           TALM organiza lotes → CVO atualiza clusters</code></pre>
+<p>Inform significa observar, nao corrigir imediatamente. O TALM controla a
+remediacao das policies durante os lotes. A policy de versao considera o
+historico Completed e as condicoes Available, Progressing e Failing do CVO;
+apenas gravar desiredUpdate nao e suficiente para declarar sucesso.</p>
+<h2>Selecao e piloto</h2>
+<p>O Placement usa o ClusterSet infra e exige as labels abaixo nos ManagedClusters.
+Os CGUs exigem as mesmas labels. O proprio hub e excluido pela label
+local-cluster=true. Nenhum cluster recebeu essas labels nesta preparacao.</p>
+<pre><code>vendor: OpenShift
+upgrades.lab-redhat.io/campaign: ocp-4-20-46
+upgrades.lab-redhat.io/engine: talm</code></pre>
+<p>Para uma frota futura, escolha clusters externos importados e saudaveis.
+Preencha <code>remediationStrategy.canaries</code> em ambos os CGUs com os
+nomes dos pilotos, que tambem precisam pertencer a selecao. A lista inicial
+esta vazia: nao existe um piloto automaticamente escolhido.</p>
+<h2>Aprovacao e sequenciamento</h2>
+<pre><code>spec:
+  enable: false
+  remediationStrategy:
+    canaries: []
+    maxConcurrency: 1
+    timeout: 240
+  batchTimeoutAction: abort</code></pre>
+<p>A campanha fleet-4-20-46 possui blockingCRs apontando para fleet-4-19-55.
+Mesmo habilitada, a segunda etapa precisa esperar o sucesso da primeira.
+O fluxo atual termina a etapa 4.19 na frota selecionada antes da etapa 4.20.
+Para uma aprovacao entre saltos, habilite e sincronize apenas a primeira etapa;
+depois da validacao, aprove a segunda. Para sequencia automatica, ambas precisam
+de aprovacao inicial, sem desativar a dependencia.</p>
+<p>A aprovacao exige alterar enable no Git e executar Sync manual da Application
+de campanhas. Synced significa manifesto aplicado, nao upgrade concluido.
+Observe Succeeded e status.clusters de cada CGU e o ClusterVersion de cada
+destino. Novas campanhas precisam de novos nomes; nao reutilize CGUs concluidos.</p>
+<h2>Preparacao antes de instalar</h2>
+<ol>
+  <li>Aguarde terminar qualquer upgrade atual. Nao execute TALM e ClusterCurator
+  no mesmo destino simultaneamente. Nao delete um curator ativo para trocar de fluxo.</li>
+  <li>Valide compatibilidade de ACM, TALM, OpenShift e operadores, backups,
+  disponibilidade dos nodes, saude do etcd/API e janelas de manutencao.</li>
+  <li>Confira o caminho recomendado pelo CVO de cada destino. O salto para
+  4.20.46 tem risco condicional conhecido de vSphere na consulta usada neste lab.
+  Estes manifests nao calculam automaticamente elegibilidade, risco ou backups.
+  Nao use force para contornar recomendacoes.</li>
+  <li>Quando houver autorizacao separada, instale o operador e aprove seu
+  InstallPlan. Espere a CRD ClusterGroupUpgrade e o controller ficarem prontos.</li>
+  <li>Depois prepare bootstrap e Applications, sincronize as policies em inform,
+  selecione os destinos e espere a conformidade ser observada pelo ACM.</li>
+  <li>So entao registre a aprovacao de enable no Git e sincronize as campanhas.</li>
+</ol>
+<p>Nao ha uma raiz Kustomize nesta pasta: as etapas sao separadas para nao
+misturar instalacao de operador, concessao de acesso e execucao de upgrades.</p>
+<h2>Validacao local, sem aplicar</h2>
+<pre><code>oc kustomize talm/operator/
+oc kustomize talm/bootstrap/
+oc kustomize talm/policies/
+oc kustomize talm/campaigns/
+oc kustomize talm/applications/</code></pre>
+<p>Esses comandos apenas renderizam YAML. Nao instalam recursos. A validacao
+de schema de ClusterGroupUpgrade exige a CRD compativel; sem operador instalado,
+um dry-run contra o servidor nao consegue validar esse tipo.</p>
+<h2>Limites da automacao</h2>
+<p>Timeout com abort interrompe a remediacao de novos lotes, mas nao reverte
+um upgrade de OpenShift ja iniciado. Reverter Git ou remover um CGU nao executa
+downgrade. Testes de aplicacoes e backups precisam de automacao adicional.
+Mantenha a lista de destinos estavel durante a campanha. Depois da etapa final,
+a policy intermediaria pode voltar a NonCompliant; nao a reaplique em enforce
+para tentar retornar a versao anterior. Arquive campanhas concluidas com cuidado.</p>
+<p>Em ambiente desconectado, prepare imagens espelhadas, CA, autenticacao, mirrors
+e o servico de atualizacoes antes de aprovar a campanha. Pre-caching esta
+desativado neste exemplo e nao substitui a preparacao do registry.</p>
+<p><a href="https://www.redhat.com/en/blog/how-to-use-the-topology-aware-lifecycle-manager">Artigo TALM</a> |
+<a href="https://docs.redhat.com/en/documentation/openshift_container_platform/4.18/html/edge_computing/cnf-talm-for-cluster-updates">Documentacao OpenShift 4.18</a></p>
+</body>
+</html>

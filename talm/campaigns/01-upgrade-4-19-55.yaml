@@ -1,0 +1,27 @@
+apiVersion: ran.openshift.io/v1alpha1
+kind: ClusterGroupUpgrade
+metadata:
+  name: fleet-4-19-55
+  namespace: talm-upgrades
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false
+spec:
+  enable: false
+  preCaching: false
+  clusterLabelSelectors:
+  - matchLabels:
+      vendor: OpenShift
+      upgrades.lab-redhat.io/campaign: ocp-4-20-46
+      upgrades.lab-redhat.io/engine: talm
+    matchExpressions:
+    - key: local-cluster
+      operator: NotIn
+      values: ["true"]
+  managedPolicies:
+  - talm-upgrade-4-19-55
+  remediationStrategy:
+    # Set explicit canary names here after importing and validating spokes.
+    canaries: []
+    maxConcurrency: 1
+    timeout: 240
+  batchTimeoutAction: abort

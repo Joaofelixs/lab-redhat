@@ -1,0 +1,44 @@
+apiVersion: cluster.open-cluster-management.io/v1beta2
+kind: ManagedClusterSetBinding
+metadata:
+  name: infra
+  namespace: talm-upgrades
+spec:
+  clusterSet: infra
+---
+apiVersion: cluster.open-cluster-management.io/v1beta1
+kind: Placement
+metadata:
+  name: talm-ocp-4-20-46
+  namespace: talm-upgrades
+spec:
+  clusterSets:
+  - infra
+  predicates:
+  - requiredClusterSelector:
+      labelSelector:
+        matchLabels:
+          vendor: OpenShift
+          upgrades.lab-redhat.io/campaign: ocp-4-20-46
+          upgrades.lab-redhat.io/engine: talm
+        matchExpressions:
+        - key: local-cluster
+          operator: NotIn
+          values: ["true"]
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: PlacementBinding
+metadata:
+  name: talm-ocp-4-20-46-inform
+  namespace: talm-upgrades
+placementRef:
+  apiGroup: cluster.open-cluster-management.io
+  kind: Placement
+  name: talm-ocp-4-20-46
+subjects:
+- apiGroup: policy.open-cluster-management.io
+  kind: Policy
+  name: talm-upgrade-4-19-55
+- apiGroup: policy.open-cluster-management.io
+  kind: Policy
+  name: talm-upgrade-4-20-46

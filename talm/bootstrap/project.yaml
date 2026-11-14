@@ -1,0 +1,24 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: talm-upgrades
+  namespace: openshift-gitops
+spec:
+  description: Policies inform e campanhas TALM com aprovacao explicita
+  sourceRepos:
+  - https://github.com/Joaofelixs/lab-redhat.git
+  destinations:
+  - server: https://kubernetes.default.svc
+    namespace: talm-upgrades
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+  - group: policy.open-cluster-management.io
+    kind: Policy
+  - group: policy.open-cluster-management.io
+    kind: PlacementBinding
+  - group: cluster.open-cluster-management.io
+    kind: Placement
+  - group: cluster.open-cluster-management.io
+    kind: ManagedClusterSetBinding
+  - group: ran.openshift.io
+    kind: ClusterGroupUpgrade

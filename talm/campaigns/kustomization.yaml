@@ -1,0 +1,6 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: talm-upgrades
+resources:
+- 01-upgrade-4-19-55.yaml
+- 02-upgrade-4-20-46.yaml
