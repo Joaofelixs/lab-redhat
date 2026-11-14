@@ -32,6 +32,10 @@ spec:
         server: https://kubernetes.default.svc
         namespace: '{{ .cluster }}'
       syncPolicy:
-        # No automated sync: syncing an Application starts a disruptive operation.
+        # Explicit manual approval: only an operator-triggered Sync starts the upgrade.
+        automated:
+          enabled: false
+          prune: false
+          selfHeal: false
         syncOptions:
         - PruneLast=true

@@ -119,6 +119,12 @@ argocd app sync upgrade-cluster-dev-01</code></pre>
 <p><strong>Esse Sync inicia a operacao.</strong> O ApplicationSet nao tem sync
 automatico. Um estado Synced significa que o manifesto foi aplicado, nao que
 o upgrade do OpenShift terminou.</p>
+<p>O template das Applications declara explicitamente automated.enabled: false,
+prune: false e selfHeal: false. Adicionar o cluster a lista ou criar a Application
+pelo ACM nao inicia o upgrade neste fluxo. Ela aguarda o Sync manual no horario
+escolhido. Se cadastrar outra Application diretamente pelo ACM, mantenha a opcao
+de sincronizacao automatica desmarcada: esse template nao controla Applications
+criadas por outros ApplicationSets.</p>
 
 <h2>6. Acompanhar e liberar o proximo lote</h2>
 <p>No hub:</p>
