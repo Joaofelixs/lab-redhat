@@ -68,6 +68,19 @@ ClusterRoleBindings. Nenhuma atualizacao e disparada ao criar a Application.
 Para nao gerar nenhuma Application, use elements: [] no generator.
 A instancia Argo CD deve ter permissao para gerenciar ClusterCurator nesses
 namespaces; AppProject restringe operacoes, mas nao concede RBAC Kubernetes.</p>
+<p>O arquivo gitops-upgrades/00-rbac-local-cluster.yaml concede ao ServiceAccount
+openshift-gitops-argocd-application-controller, de openshift-gitops, somente
+get, list, watch, create, update e patch de ClusterCurator no namespace
+local-cluster. Nao concede cluster-admin nem permissao de delete. Isso resolve
+o erro forbidden ao aplicar a campanha sem ampliar acesso a outros recursos.</p>
+<pre><code>oc auth can-i create clustercurators.cluster.open-cluster-management.io \
+  -n local-cluster \
+  --as=system:serviceaccount:openshift-gitops:openshift-gitops-argocd-application-controller</code></pre>
+<p>Para adicionar outros clusters, provisione uma Role e um RoleBinding
+equivalentes em cada namespace de ManagedCluster no hub, antes do Sync da
+campanha. Ajuste o ServiceAccount se usar outra instancia Argo CD. Nao use um
+ClusterRoleBinding amplo para contornar esse requisito. Aplicar o RBAC nao
+inicia o upgrade; a Application continua com sincronizacao manual.</p>
 
 <h2>4. Escolher versao e piloto no Git</h2>
 <p>Edite upgrades/ocp/cluster-curator.yaml: ajuste desiredUpdate, intermediateUpdate,
