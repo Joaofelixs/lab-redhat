@@ -1,0 +1,29 @@
+apiVersion: agent.open-cluster-management.io/v1
+kind: KlusterletAddonConfig
+metadata:
+  name: cluster-xgdnd
+  namespace: cluster-xgdnd
+spec:
+  applicationManager:
+    enabled: true
+  certPolicyController:
+    enabled: true
+  policyController:
+    enabled: true
+  searchCollector:
+    enabled: false
+---
+apiVersion: agent.open-cluster-management.io/v1
+kind: KlusterletAddonConfig
+metadata:
+  name: cluster-2dns8
+  namespace: cluster-2dns8
+spec:
+  applicationManager:
+    enabled: true
+  certPolicyController:
+    enabled: true
+  policyController:
+    enabled: true
+  searchCollector:
+    enabled: false

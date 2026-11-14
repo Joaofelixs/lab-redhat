@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="pt-BR">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ACM entre redes privadas com Service Interconnect</title>
+<style>body{max-width:1040px;margin:auto;padding:24px;font:16px/1.7 system-ui;color:#222}h1{font-size:28px}h2{font-size:23px}pre{background:#f2f4f6;padding:16px;overflow:auto}code{overflow-wrap:anywhere}a{color:#005ea8}li{margin:8px 0}</style>
+<h1>ACM entre redes privadas com Service Interconnect</h1>
+<p>Configuração do laboratório em 14/11/2026. O hub está em uma rede privada;
+os clusters externos não resolvem api.ocp4.lab.local nem têm rota direta até
+ele. Conseguir executar oc a partir da nossa máquina não significa que os
+agentes externos consigam acessar o hub no sentido contrário.</p>
+<h2>Arquitetura escolhida</h2>
+<pre>Hub privado, namespace acm-interconnect
+  Squid restrito → api.ocp4.lab.local:6443
+       ↑ Connector hub-api-proxy
+       │ link mTLS iniciado pelo hub, de dentro para fora
+       ↓
+cluster-xgdnd: Site com Routes públicas para os links
+  Listener hub-api-proxy:3128 ← agentes ACM desse cluster
+       ↑
+       │ segundo link mTLS, iniciado pelo cluster-2dns8
+       ↓
+cluster-2dns8
+  Listener hub-api-proxy:3128 ← agentes ACM desse cluster</pre>
+<p>Service Interconnect não é uma VPN entre todas as redes. Publicamos apenas
+um serviço de proxy CONNECT na rede de aplicações. Cada agente usa esse proxy
+para estabelecer TLS com o endereço original do hub. O Squid resolve o nome
+privado dentro do lab, mas não termina nem substitui o TLS da API. O certificado
+e o hostname do hub continuam sendo verificados pelo agente.</p>
+<p><strong>Dependência importante:</strong> o cluster-xgdnd é o ponto público
+de conexão desta topologia de laboratório. Sua indisponibilidade afeta também
+o gerenciamento do cluster-2dns8. Não atualize esse ponto simultaneamente ao
+segundo cluster. Isto não é uma arquitetura de rede com alta disponibilidade.</p>
+<h2>Arquivos e onde aplicar</h2>
+<p>Não aplique esta pasta inteira com oc apply -f interconnect-acm/. Ela contém
+recursos de clusters diferentes. Preserve o contexto padrão do hub e use
+--kubeconfig explícito para os destinos externos. Os kubeconfigs e tokens não
+fazem parte deste repositório.</p>
+<ul>
+<li>operator.yaml: Subscription Red Hat Service Interconnect, canal stable-2.1,
+nos três clusters. A versão resolvida no laboratório foi 2.1.4-rh-3. Foi usado
+o catálogo redhat-operators, não o operador comunitário com o mesmo nome.</li>
+<li>hub.yaml: Site sem entrada pública, Squid, Connector e proteção de ingresso,
+somente no hub.</li>
+<li>pilot.yaml: Site com linkAccess default, Listener e NetworkPolicy,
+somente no cluster-xgdnd.</li>
+<li>second.yaml: Site sem entrada pública, Listener e NetworkPolicy,
+somente no cluster-2dns8.</li>
+<li>klusterlet-config.yaml: dois KlusterletConfigs criados no hub, com
+proxyURL apontando para o Service local que existirá em cada cluster externo.</li>
+<li>managed-clusters.yaml: namespaces e registros no hub, com o vínculo a
+esses KlusterletConfigs. Não contém credenciais nem labels de upgrade.</li>
+<li>addons.yaml: configuração dos add-ons no hub. Application Manager,
+governança e certificados habilitados; Search Collector desligado.</li>
+<li>test-job.yaml: validação de TLS e da lista de destinos permitidos,
+executada em cada cluster externo antes de importar os agentes.</li>
+</ul>
+<h2>1. Instalar o operador</h2>
+<pre># Repita explicitamente em cada contexto, usando o kubeconfig correto.
+oc apply -f interconnect-acm/operator.yaml
+oc -n openshift-operators get subscriptions.operators.coreos.com skupper-operator
+oc -n openshift-operators get installplans
+oc -n openshift-operators get installplan &lt;plano-desta-subscription&gt; -o yaml
+oc -n openshift-operators patch installplan &lt;plano-revisado&gt; \
+  --type=merge -p '{"spec":{"approved":true}}'
+oc -n openshift-operators get csv</pre>
+<p>A aprovação foi feita somente para o InstallPlan que listava o CSV do
+Skupper 2.1.4-rh-3. Não aprove todos os InstallPlans indiscriminadamente.
+Espere o CSV Succeeded e as CRDs antes de criar os Sites.</p>
+<h2>2. Criar os Sites e o serviço restrito</h2>
+<pre># Hub
+oc apply -f interconnect-acm/hub.yaml
+
+# Primeiro cluster externo
+oc --kubeconfig=&lt;config-xgdnd&gt; apply -f interconnect-acm/pilot.yaml
+
+# Segundo cluster externo
+oc --kubeconfig=&lt;config-2dns8&gt; apply -f interconnect-acm/second.yaml</pre>
+<p>O Squid permite somente CONNECT para api.ocp4.lab.local na porta 6443;
+qualquer outro destino ou método é negado. Ele não tem Route pública, não
+monta token de ServiceAccount e só aceita tráfego de pods do próprio namespace.
+O Listener remoto é um Service ClusterIP, não uma Route aberta para a API.</p>
+<p>O Service remoto oferece 3128, mas o Skupper alocou a porta 1024 no router.
+NetworkPolicy avalia essa porta real após o encaminhamento do Service. Por
+isso a política dos agentes permite 1024, não 3128. Em uma nova implantação,
+confirme spec.ports[].targetPort e ajuste a política se a alocação mudar:</p>
+<pre>oc --kubeconfig=&lt;config-externo&gt; -n acm-interconnect \
+  get service hub-api-proxy -o yaml</pre>
+<h2>3. Vincular os Sites</h2>
+<p>No cluster-xgdnd, crie um AccessGrant com uma única utilização e duração
+curta, um para o hub e outro para o segundo cluster. O controller fornece URL,
+código e CA; transfira esses campos para um AccessToken no Site que iniciará
+a conexão. O token contém uma credencial: não publique seu YAML no Git nem
+em logs. A redenção cria o Link com autenticação mútua TLS.</p>
+<p>No laboratório, os grants hub-pilot e second-spoke permitem uma redenção
+cada, com janela de 30 minutos. Os links criados usam nomes hub-to-xgdnd e
+second-to-xgdnd. O hub e o segundo cluster iniciam conexões de saída para as
+Routes do primeiro; nenhuma porta de entrada foi aberta no roteador doméstico.</p>
+<pre>oc -n acm-interconnect get sites.skupper.io,links.skupper.io
+oc --kubeconfig=&lt;config-2dns8&gt; -n acm-interconnect get links.skupper.io</pre>
+<h2>4. Testar antes de importar</h2>
+<p>Crie no namespace remoto um ConfigMap hub-api-test-ca com a chave ca.crt
+contendo a CA pública verificada da API do hub. O certificado público não é
+senha; mesmo assim, sua origem deve ser confiável. Não use certificado obtido
+de um endpoint desconhecido como confiança sem verificá-lo.</p>
+<pre>oc --kubeconfig=&lt;config-externo&gt; -n acm-interconnect \
+  create configmap hub-api-test-ca --from-file=ca.crt=&lt;CA-verificada-do-hub&gt;
+oc --kubeconfig=&lt;config-externo&gt; apply -f interconnect-acm/test-job.yaml
+oc --kubeconfig=&lt;config-externo&gt; -n acm-interconnect \
+  logs job/hub-api-interconnect-test</pre>
+<p>O teste faz GET /readyz com --cacert e sem -k, usando o proxy. Depois tenta
+um destino fora da lista permitida, que deve receber 403. Um Link Ready não
+basta: é necessário validar o tráfego da aplicação e o TLS ponta a ponta.</p>
+<h2>5. Configurar e importar o agente ACM</h2>
+<pre># No hub
+oc apply -f interconnect-acm/klusterlet-config.yaml
+oc annotate managedcluster cluster-xgdnd \
+  agent.open-cluster-management.io/klusterlet-config=interconnect-xgdnd --overwrite
+oc annotate managedcluster cluster-2dns8 \
+  agent.open-cluster-management.io/klusterlet-config=interconnect-2dns8 --overwrite</pre>
+<p>Aguarde o controller regenerar o Secret &lt;nome-do-cluster&gt;-import. Confira,
+sem exibir tokens, que o bootstrap kubeconfig mantém o servidor original e
+inclui proxy-url: http://hub-api-proxy.acm-interconnect.svc:3128, com validação
+TLS habilitada. Aplique crds.yaml e depois import.yaml no cluster externo
+correspondente. Esses manifests incluem credenciais do hub: transfira em
+memória ou por arquivo privado temporário, nunca pelo repositório.</p>
+<pre># No hub, após a importação
+oc apply -f interconnect-acm/addons.yaml
+oc get managedclusters
+oc -n cluster-xgdnd get managedclusteraddons
+oc -n cluster-2dns8 get managedclusteraddons</pre>
+<p>Os registros e namespaces dos ManagedClusters já existiam antes dos links.
+Esta configuração não adiciona labels de campanha TALM nem altera o
+ApplicationSet de upgrades. Importar um cluster não autoriza atualizá-lo.</p>
+<h2>Limites e diagnóstico</h2>
+<p><strong>Validação realizada:</strong> os dois clusters chegaram a
+Joined=True e Available=True no hub. Os dois testes de acesso a /readyz
+passaram com a CA do hub e sem desabilitar TLS. A tentativa de conexão a um
+destino não autorizado recebeu 403. Estes testes não equivalem a validar
+todas as funcionalidades de todos os add-ons do ACM.</p>
+<p>Os sete add-ons básicos listados pelo ACM ficaram Available=True nos dois
+clusters. Para testar o gerenciamento de ponta a ponta, um ManifestWork
+temporário criou um ConfigMap em cada destino; os dois confirmaram Applied=True,
+e os dados foram conferidos diretamente. Depois os ManifestWorks foram
+removidos para que os agentes limpassem os ConfigMaps de teste.</p>
+<p>O proxy autoriza somente a API do hub. Recursos que dependem de outras
+Routes, como certos fluxos de streaming e console, exigem validação específica
+e publicação explícita de seus endpoints. Um add-on Available não comprova
+que todos os seus recursos de interface e streaming foram testados.</p>
+<pre># Hub
+oc -n acm-interconnect logs deploy/acm-connect-proxy --tail=40
+oc -n acm-interconnect get connectors.skupper.io,links.skupper.io
+
+# Em cada cluster externo
+oc --kubeconfig=&lt;config-externo&gt; -n acm-interconnect get listeners.skupper.io
+oc --kubeconfig=&lt;config-externo&gt; -n open-cluster-management-agent get pods
+oc --kubeconfig=&lt;config-externo&gt; -n open-cluster-management-agent-addon get pods</pre>
+<p>TCP_TUNNEL/200 indica CONNECT aceito; TCP_DENIED/403 indica bloqueio pela
+lista de destinos. Um 503 pode significar API do hub indisponível, e não
+necessariamente falha do link. Durante um reboot do SNO, o proxy e o ACM também
+ficam indisponíveis. Não desabilite TLS para contornar erros de certificado.</p>
+<h2>Referências</h2>
+<p><a href="https://docs.redhat.com/en/documentation/red_hat_service_interconnect/2.1/html-single/using_service_interconnect/using_service_interconnect">Red Hat Service Interconnect 2.1</a> e
+<a href="https://docs.redhat.com/en/documentation/red_hat_advanced_cluster_management_for_kubernetes/2.14/html/clusters/cluster_mce_overview">ACM 2.14: configuração de proxy do Klusterlet</a>.</p>
+</html>

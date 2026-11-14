@@ -1,0 +1,33 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cluster-xgdnd
+---
+apiVersion: cluster.open-cluster-management.io/v1
+kind: ManagedCluster
+metadata:
+  name: cluster-xgdnd
+  annotations:
+    agent.open-cluster-management.io/klusterlet-config: interconnect-xgdnd
+  labels:
+    vendor: OpenShift
+spec:
+  hubAcceptsClient: true
+  leaseDurationSeconds: 60
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cluster-2dns8
+---
+apiVersion: cluster.open-cluster-management.io/v1
+kind: ManagedCluster
+metadata:
+  name: cluster-2dns8
+  annotations:
+    agent.open-cluster-management.io/klusterlet-config: interconnect-2dns8
+  labels:
+    vendor: OpenShift
+spec:
+  hubAcceptsClient: true
+  leaseDurationSeconds: 60

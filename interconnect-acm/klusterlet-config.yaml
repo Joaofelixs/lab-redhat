@@ -1,0 +1,19 @@
+apiVersion: config.open-cluster-management.io/v1alpha1
+kind: KlusterletConfig
+metadata:
+  name: interconnect-xgdnd
+spec:
+  hubKubeAPIServerConfig:
+    url: https://api.ocp4.lab.local:6443
+    proxyURL: http://hub-api-proxy.acm-interconnect.svc:3128
+    serverVerificationStrategy: UseAutoDetectedCABundle
+---
+apiVersion: config.open-cluster-management.io/v1alpha1
+kind: KlusterletConfig
+metadata:
+  name: interconnect-2dns8
+spec:
+  hubKubeAPIServerConfig:
+    url: https://api.ocp4.lab.local:6443
+    proxyURL: http://hub-api-proxy.acm-interconnect.svc:3128
+    serverVerificationStrategy: UseAutoDetectedCABundle

@@ -1,0 +1,50 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: hub-api-interconnect-test
+  namespace: acm-interconnect
+spec:
+  backoffLimit: 1
+  activeDeadlineSeconds: 240
+  template:
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      containers:
+      - name: test
+        image: registry.access.redhat.com/ubi9/ubi:latest
+        command: [/bin/bash, -ec]
+        args:
+        - |
+          curl --fail --cacert /ca/ca.crt --proxy http://hub-api-proxy:3128 \
+            --noproxy '' --connect-timeout 15 --max-time 45 \
+            https://api.ocp4.lab.local:6443/readyz
+          echo
+          echo 'Hub API reachable with TLS verification enabled'
+          if curl --fail --proxy http://hub-api-proxy:3128 --noproxy '' \
+            --connect-timeout 5 --max-time 10 https://example.com; then
+            echo 'ERROR: proxy allowed a destination outside the allowlist'
+            exit 1
+          fi
+          echo 'Unapproved destination blocked'
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            cpu: 100m
+            memory: 64Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: [ALL]
+          seccompProfile:
+            type: RuntimeDefault
+        volumeMounts:
+        - name: ca
+          mountPath: /ca
+          readOnly: true
+      volumes:
+      - name: ca
+        configMap:
+          name: hub-api-test-ca
