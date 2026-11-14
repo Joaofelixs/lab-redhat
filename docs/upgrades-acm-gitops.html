@@ -195,6 +195,20 @@ Se o recurso ainda aponta para um curatorJob inexistente, um novo Sync nao
 e prova de retomada. Revise a limpeza/recriacao do recurso de campanha com
 o administrador, depois de confirmar que nenhum Job ou upgrade esta ativo.
 Nao exclua o ManagedCluster, o namespace local-cluster ou o ClusterVersion.</p>
+<p><strong>Campo imutavel:</strong> nesta CRD, remover ou modificar
+spec.upgrade.intermediateUpdate em um ClusterCurator existente e rejeitado
+com a mensagem The intermediateUpdate cannot be modified. Um patch, outro
+Sync ou Replace simples nao contorna essa validacao. Depois de confirmar que
+nenhum upgrade ou Job esta ativo e que nao ha Sync em execucao, salve o recurso
+antigo e remova somente o ClusterCurator da campanha:</p>
+<pre><code>oc -n local-cluster get clustercurator local-cluster -o yaml &gt; curator-anterior.yaml
+oc -n local-cluster delete clustercurator local-cluster --wait=true --timeout=30s</code></pre>
+<p>No laboratorio esse recurso antigo foi removido em 14/11/2026, com
+sincronizacao automatica desativada. Depois, use Refresh no Argo, revise o
+manifesto sem intermediateUpdate e aprove um novo Sync de upgrade-local-cluster.
+Esse Sync cria outro ClusterCurator e pode iniciar o segundo salto. Nao adicione
+Force=true permanentemente: isso pode recriar a campanha em sincronizacoes
+futuras. Remover o recurso nao desfaz uma atualizacao ja solicitada ao CVO.</p>
 <p>Aprovacao manual continua obrigatoria. Acompanhe as conditions do
 ClusterCurator e o history do ClusterVersion, nao somente Synced no Argo.</p>
 
