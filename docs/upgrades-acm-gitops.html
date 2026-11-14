@@ -36,7 +36,11 @@ mas com sincronizacao automatica explicitamente desativada. A campanha proposta 
 </ul>
 <pre><code>Git → Argo CD → ClusterCurator no hub → cluster gerenciado → CVO → nodes</code></pre>
 <p>Esses recursos nao ficam em policies-acm: esse namespace guarda policies de
-governanca. Cada ClusterCurator fica no namespace do respectivo ManagedCluster.</p>
+governanca. Cada ClusterCurator fica no namespace do respectivo ManagedCluster
+e precisa ter o mesmo metadata.name do cluster. No piloto, nome e namespace
+sao local-cluster. O ApplicationSet ajusta ambos por destino. A versao fica
+em spec.upgrade, nao no nome do recurso. Caso contrario, o controller procura
+um ManagedClusterInfo com o nome errado e ignora o upgrade.</p>
 
 <h2>2. Validar antes de aprovar</h2>
 <p>Em cada cluster de destino, confirme a versao e o caminho de atualizacao:</p>
@@ -84,7 +88,8 @@ inicia o upgrade; a Application continua com sincronizacao manual.</p>
 
 <h2>4. Escolher versao e piloto no Git</h2>
 <p>Edite upgrades/ocp/cluster-curator.yaml: ajuste desiredUpdate, intermediateUpdate,
-channel e o nome da campanha. Nao reutilize cegamente a versao candidata para toda a frota:
+e channel. Mantenha metadata.name igual ao nome do ManagedCluster, sem colocar
+a versao no nome. Nao reutilize cegamente a versao candidata para toda a frota:
 ela precisa estar disponivel no caminho suportado de cada cluster selecionado.</p>
 <pre><code>spec:
   desiredCuration: upgrade
@@ -146,7 +151,7 @@ criadas por outros ApplicationSets.</p>
 <h2>6. Acompanhar e liberar o proximo lote</h2>
 <p>No hub:</p>
 <pre><code>oc get clustercurator -n cluster-dev-01
-oc describe clustercurator upgrade-4-20-46 -n cluster-dev-01
+oc describe clustercurator cluster-dev-01 -n cluster-dev-01
 oc get jobs,pods -n cluster-dev-01</code></pre>
 <p>No cluster atualizado, valide novamente versao, operators, nodes, MCPs e
 aplicacoes. Somente depois libere novas entradas e sincronize o proximo lote.

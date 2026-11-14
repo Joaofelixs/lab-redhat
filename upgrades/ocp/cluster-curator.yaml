@@ -1,7 +1,8 @@
 apiVersion: cluster.open-cluster-management.io/v1beta1
 kind: ClusterCurator
 metadata:
-  name: upgrade-4-20-46
+  # Must match the ManagedCluster name; ApplicationSet patches this per target.
+  name: local-cluster
   annotations:
     argocd.argoproj.io/sync-options: Prune=false
 spec:

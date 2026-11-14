@@ -29,6 +29,15 @@ spec:
         path: upgrades/ocp
         kustomize:
           namespace: '{{ .cluster }}'
+          patches:
+          - target:
+              group: cluster.open-cluster-management.io
+              version: v1beta1
+              kind: ClusterCurator
+            patch: |-
+              - op: replace
+                path: /metadata/name
+                value: '{{ .cluster }}'
       destination:
         # ClusterCurator must be created on the HUB, in the managed cluster namespace.
         server: https://kubernetes.default.svc
