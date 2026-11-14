@@ -16,10 +16,16 @@ Um único repositório: **https://github.com/Joaofelixs/lab-redhat.git**. As pas
 | `gitops-apps/` | Instância Argo CD dedicada às demos, RBAC, integração ACM e ApplicationSet | Opcional para reproduzir a separação do artigo. |
 | `apps/canary/` | Rollout canary, Services e Route | Path da aplicação de demonstração canary. |
 | `apps/bluegreen/` | Rollout blue-green, Services e Routes active/preview | Path da aplicação de demonstração blue-green. |
+| `gitops-upgrades/` | AppProject e ApplicationSet para upgrades via ACM | Lista de clusters vazia por padrao e sincronizacao manual. |
+| `upgrades/ocp/` | ClusterCurator da campanha de upgrade | Nao sincronizar diretamente: a aplicacao gerada define o namespace do cluster no hub. |
 | `argocd-applications/` | Exemplo de Application para policies/acm | Referência de bootstrap; não sincronizar junto de outra Application que gerencie os mesmos objetos. |
 | `scripts/` | Comando para gerar/conferir a policy do Gatekeeper | Executar localmente antes de publicar alterações nas fontes. |
 
 ## Gatekeeper: fluxo usado neste lab
+
+Guia de upgrades por lotes: [GitOps + ACM (HTML)](docs/upgrades-acm-gitops.html).
+O fluxo de upgrade e independente das policies de instalacao. Nenhum cluster e
+atualizado apenas por aplicar `gitops-upgrades/`: a lista inicial esta vazia.
 
 ```text
 generators/gatekeeper/               fontes editáveis

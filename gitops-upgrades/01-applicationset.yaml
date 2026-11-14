@@ -1,0 +1,37 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: ocp-upgrades
+  namespace: openshift-gitops
+spec:
+  goTemplate: true
+  goTemplateOptions:
+  - missingkey=error
+  generators:
+  - list:
+      # Add only explicitly approved ManagedCluster names. Empty means no upgrades.
+      elements: []
+  syncPolicy:
+    applicationsSync: create-update
+    preserveResourcesOnDeletion: true
+  template:
+    metadata:
+      name: 'upgrade-{{ .cluster }}'
+      labels:
+        upgrades.lab-redhat.io/batch: '{{ .batch }}'
+    spec:
+      project: cluster-upgrades
+      source:
+        repoURL: https://github.com/Joaofelixs/lab-redhat.git
+        targetRevision: main
+        path: upgrades/ocp
+        kustomize:
+          namespace: '{{ .cluster }}'
+      destination:
+        # ClusterCurator must be created on the HUB, in the managed cluster namespace.
+        server: https://kubernetes.default.svc
+        namespace: '{{ .cluster }}'
+      syncPolicy:
+        # No automated sync: syncing an Application starts a disruptive operation.
+        syncOptions:
+        - PruneLast=true

@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Upgrade de clusters OpenShift com GitOps e ACM</title>
+  <style>
+    body { margin: 0 auto; padding: 28px 20px; max-width: 960px; font: 16px/1.65 system-ui,sans-serif; color: #20252b; background: #fff; }
+    h1 { font-size: 28px; } h2 { margin-top: 32px; font-size: 22px; }
+    pre { padding: 16px; overflow-x: auto; background: #f2f4f6; border-left: 4px solid #c9190b; }
+    code { overflow-wrap: anywhere; } pre code { overflow-wrap: normal; }
+    a { color: #005ea8; } strong { color: #151515; }
+  </style>
+</head>
+<body>
+<h1>Upgrade de clusters OpenShift com GitOps e ACM</h1>
+<p>Este fluxo guarda no Git a intencao de atualizar clusters. Ele usa o Argo CD
+para criar recursos ClusterCurator no hub ACM. O ClusterCurator solicita e acompanha
+a atualizacao; o Cluster Version Operator de cada OpenShift executa o upgrade.</p>
+<p><strong>Estado inicial seguro:</strong> nenhum cluster selecionado e nenhuma
+sincronizacao automatica. O exemplo usa 4.18.56 como candidata observada no
+availableUpdates do lab, nao como aprovacao de atualizacao.</p>
+
+<h2>1. Entender os componentes</h2>
+<ul>
+  <li><strong>Hub:</strong> cluster onde o ACM gerencia os outros clusters.</li>
+  <li><strong>ManagedCluster:</strong> cadastro de um cluster no ACM. Seu nome
+  identifica tambem o namespace correspondente no hub.</li>
+  <li><strong>ApplicationSet:</strong> gera uma Application Argo CD por entrada
+  na lista aprovada. A lista vazia nao gera aplicacoes.</li>
+  <li><strong>Application:</strong> aplica o ClusterCurator no namespace do
+  cluster gerenciado, mas sempre na API do hub.</li>
+  <li><strong>ClusterCurator:</strong> recurso que coordena a operacao de upgrade.</li>
+  <li><strong>Lote:</strong> grupo operacional, como piloto ou homologacao. A
+  label batch identifica o lote; ela nao implementa uma fila automatica.</li>
+</ul>
+<pre><code>Git → Argo CD → ClusterCurator no hub → cluster gerenciado → CVO → nodes</code></pre>
+<p>Esses recursos nao ficam em policies-acm: esse namespace guarda policies de
+governanca. Cada ClusterCurator fica no namespace do respectivo ManagedCluster.</p>
+
+<h2>2. Validar antes de aprovar</h2>
+<p>Em cada cluster de destino, confirme a versao e o caminho de atualizacao:</p>
+<pre><code>oc get clusterversion version
+oc adm upgrade
+oc get co
+oc get nodes
+oc get mcp</code></pre>
+<p>Exija nodes Ready, operators disponiveis e sem degradacao, MCPs atualizados,
+backup de etcd e dados das aplicacoes, compatibilidade de operadores e janela de
+manutencao. Investigue antes qualquer timeout recorrente de API/etcd.
+Nao use force ou allowExplicitUpgrade para contornar o caminho suportado.</p>
+<p>No hub, confira o cadastro e a saude dos agentes:</p>
+<pre><code>oc get managedclusters
+oc get managedclusteraddons -n NOME_DO_CLUSTER
+oc get clustercurators -A</code></pre>
+<p>Um cluster importado precisa estar aceito, conectado e com seus agentes de
+gerenciamento saudaveis. Confira tambem se ja existe um ClusterCurator no mesmo
+namespace; nao execute campanhas concorrentes para o mesmo cluster.</p>
+
+<h2>3. Instalar a estrutura, sem iniciar upgrades</h2>
+<pre><code>oc apply -k gitops-upgrades/
+oc get applicationset ocp-upgrades -n openshift-gitops
+oc get applications -n openshift-gitops -l upgrades.lab-redhat.io/batch</code></pre>
+<p>O primeiro comando cria o projeto restrito e o ApplicationSet. O projeto
+permite somente ClusterCurator nos namespaces do hub, nao Deployments ou
+ClusterRoleBindings. A lista elements esta vazia: nenhuma atualizacao e disparada.
+A instancia Argo CD deve ter permissao para gerenciar ClusterCurator nesses
+namespaces; AppProject restringe operacoes, mas nao concede RBAC Kubernetes.</p>
+
+<h2>4. Escolher versao e piloto no Git</h2>
+<p>Edite upgrades/ocp/cluster-curator.yaml: ajuste desiredUpdate, channel e o
+nome da campanha. Nao reutilize cegamente a versao candidata para toda a frota:
+ela precisa estar disponivel no caminho suportado de cada cluster selecionado.</p>
+<p>Depois, em gitops-upgrades/01-applicationset.yaml, substitua elements: [] por
+uma lista explicita. Exemplo ilustrativo, nao um cluster existente:</p>
+<pre><code>elements:
+- cluster: cluster-dev-01
+  batch: piloto</code></pre>
+<p>Faca commit e push das alteracoes aprovadas e reaplique a estrutura caso ela
+ainda nao seja gerenciada por uma Application de bootstrap:</p>
+<pre><code>oc apply -k gitops-upgrades/</code></pre>
+<p>O ApplicationSet le a lista do seu recurso no hub, nao diretamente do arquivo
+no Git. Por isso e necessario reconciliar essa estrutura apos mudar a lista.</p>
+<p><strong>Nao inclua local-cluster por engano:</strong> ele e o proprio hub.
+Em um SNO, seu upgrade reinicia o unico node e interrompe temporariamente ACM,
+Argo CD, console e aplicacoes hospedadas. Atualize o hub em uma campanha separada.</p>
+
+<h2>5. Aprovar o inicio no Argo CD</h2>
+<p>Revise o diff da Application upgrade-cluster-dev-01. Confirme que o destino
+e a API do hub e o namespace e cluster-dev-01. Somente entao execute Sync na
+console Argo CD, ou use a CLI autenticada:</p>
+<pre><code>argocd app diff upgrade-cluster-dev-01
+argocd app sync upgrade-cluster-dev-01</code></pre>
+<p><strong>Esse Sync inicia a operacao.</strong> O ApplicationSet nao tem sync
+automatico. Um estado Synced significa que o manifesto foi aplicado, nao que
+o upgrade do OpenShift terminou.</p>
+
+<h2>6. Acompanhar e liberar o proximo lote</h2>
+<p>No hub:</p>
+<pre><code>oc get clustercurator -n cluster-dev-01
+oc describe clustercurator upgrade-4-18-56 -n cluster-dev-01
+oc get jobs,pods -n cluster-dev-01</code></pre>
+<p>No cluster atualizado, valide novamente versao, operators, nodes, MCPs e
+aplicacoes. Somente depois libere novas entradas e sincronize o proximo lote.
+Nao selecione varias Applications para Sync se a intencao e atualizar uma de
+cada vez. Para garantir sequenciamento automatico, e necessario um workflow
+adicional que espere conclusao e execute verificacoes antes de avancar.</p>
+<p>Sync waves ordenam recursos; nao garantem conclusao de upgrades entre
+clusters. O campo batch e organizacional, nao um controlador de concorrencia.</p>
+
+<h2>7. Falhas, repeticoes e limpeza</h2>
+<p>O controlador pode alterar desiredCuration ao terminar. Isso pode deixar a
+Application OutOfSync. Nao configure selfHeal nem ressincronize sem revisar:
+reaplicar desiredCuration: upgrade pode solicitar nova execucao.</p>
+<p>Prune automatico esta desativado. O ApplicationSet usa create-update e
+preserveResourcesOnDeletion: remover um cluster da lista nao cancela uma
+atualizacao nem remove automaticamente a Application gerada. Arquive e remova
+recursos de campanhas concluidas somente apos confirmar seu estado.</p>
+<p><strong>Reverter um commit nao faz downgrade do OpenShift.</strong> Remover
+o ClusterCurator ou fechar o Argo CD tambem nao desfaz um upgrade em andamento.
+Em caso de falha, interrompa novos lotes e investigue o cluster afetado.</p>
+
+<h2>8. Ambientes sem internet</h2>
+<p>Este exemplo assume imagens acessiveis e uma versao anunciada ao cluster.
+Em uma rede air-gapped, prepare antes o registry espelho, as imagens de release,
+autenticacao, CA, configuracao de mirrors e OpenShift Update Service interno
+quando usado. O ACM nao transfere automaticamente as imagens de release.</p>
+<p>Referencia: <a href="https://docs.redhat.com/en/documentation/red_hat_advanced_cluster_management_for_kubernetes/2.14/html-single/clusters/index">Red Hat ACM 2.14: gerenciamento de clusters e ClusterCurator</a>.</p>
+</body>
+</html>
