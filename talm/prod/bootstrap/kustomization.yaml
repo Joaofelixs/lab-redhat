@@ -3,3 +3,4 @@ kind: Kustomization
 resources:
 - namespace.yaml
 - clusterset-binding.yaml
+- rbac.yaml

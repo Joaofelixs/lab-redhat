@@ -1,0 +1,29 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: argocd-talm-prod
+  namespace: talm-upgrades-prod
+rules:
+- apiGroups: [policy.open-cluster-management.io]
+  resources: [policies, placementbindings]
+  verbs: [get, list, watch, create, update, patch]
+- apiGroups: [cluster.open-cluster-management.io]
+  resources: [placements]
+  verbs: [get, list, watch, create, update, patch]
+- apiGroups: [ran.openshift.io]
+  resources: [clustergroupupgrades]
+  verbs: [get, list, watch, create, update, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: argocd-talm-prod
+  namespace: talm-upgrades-prod
+subjects:
+- kind: ServiceAccount
+  name: openshift-gitops-argocd-application-controller
+  namespace: openshift-gitops
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: argocd-talm-prod
