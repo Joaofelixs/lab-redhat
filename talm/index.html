@@ -14,13 +14,18 @@
 </head>
 <body>
 <h1>TALM: atualizacao de clusters por lotes</h1>
-<p><strong>Conteudo somente no Git.</strong> Nenhum arquivo desta pasta foi
-aplicado no cluster. O fluxo anterior de ClusterCurator continua separado.</p>
+<p>Roteiro completo: <a href="artigo-gitops-acm-talm.html">do Git ao Argo CD,
+ACM e TALM</a>, com os YAMLs reais, comandos e pontos de aprovacao.</p>
+<p><strong>Preparacao HML em 14/11/2026:</strong> TALM 4.20.5 instalado no hub;
+policies em inform e CGUs com enable: false. Nenhum upgrade foi autorizado.
+Veja o <a href="hml-piloto.html">estado e as validacoes do piloto HML</a>.
+O fluxo anterior de ClusterCurator continua separado.</p>
 <h2>Estrutura</h2>
 <ul>
-  <li><code>operator/</code>: Subscription TALM, canal 4.18 e aprovacao manual
+  <li><code>operator/</code>: Subscription TALM, canal 4.20 e aprovacao manual
   de InstallPlan. Reavalie o canal conforme a versao do hub antes de instalar.</li>
-  <li><code>bootstrap/</code>: namespace talm-upgrades, AppProject e RBAC restrito
+  <li><code>bootstrap/</code>: namespace talm-upgrades, vinculo do ClusterSet hml,
+  AppProject e RBAC restrito
   para o controller do Argo CD. O bootstrap exige um administrador; o projeto
   de campanhas nao permite criar suas proprias permissoes.</li>
   <li><code>policies/</code>: selecao de clusters e duas policies ACM em inform,
@@ -41,21 +46,23 @@ remediacao das policies durante os lotes. A policy de versao considera o
 historico Completed e as condicoes Available, Progressing e Failing do CVO;
 apenas gravar desiredUpdate nao e suficiente para declarar sucesso.</p>
 <h2>Selecao e piloto</h2>
-<p>O Placement usa o ClusterSet infra e exige as labels abaixo nos ManagedClusters.
+<p>O Placement usa o ClusterSet hml e exige as labels abaixo nos ManagedClusters.
 Os CGUs exigem as mesmas labels. O proprio hub e excluido pela label
-local-cluster=true. Nenhum cluster recebeu essas labels nesta preparacao.</p>
+local-cluster=true. Somente cluster-2dns8 recebeu as labels de campanha.</p>
 <pre><code>vendor: OpenShift
+name: cluster-2dns8
+cluster.open-cluster-management.io/clusterset: hml
 upgrades.lab-redhat.io/campaign: ocp-4-20-46
 upgrades.lab-redhat.io/engine: talm</code></pre>
-<p>Para uma frota futura, escolha clusters externos importados e saudaveis.
-Preencha <code>remediationStrategy.canaries</code> em ambos os CGUs com os
-nomes dos pilotos, que tambem precisam pertencer a selecao. A lista inicial
-esta vazia: nao existe um piloto automaticamente escolhido.</p>
+<p>O piloto e cluster-2dns8, com OpenShift 4.18.56 ARM64 na AWS.
+PROD (cluster-xgdnd) e o hub estao fora da selecao. Para uma frota futura,
+revise simultaneamente o Placement e os seletores dos CGUs, sem alterar uma
+campanha em andamento.</p>
 <h2>Aprovacao e sequenciamento</h2>
 <pre><code>spec:
   enable: false
   remediationStrategy:
-    canaries: []
+    canaries: [cluster-2dns8]
     maxConcurrency: 1
     timeout: 240
   batchTimeoutAction: abort</code></pre>
@@ -107,6 +114,6 @@ para tentar retornar a versao anterior. Arquive campanhas concluidas com cuidado
 e o servico de atualizacoes antes de aprovar a campanha. Pre-caching esta
 desativado neste exemplo e nao substitui a preparacao do registry.</p>
 <p><a href="https://www.redhat.com/en/blog/how-to-use-the-topology-aware-lifecycle-manager">Artigo TALM</a> |
-<a href="https://docs.redhat.com/en/documentation/openshift_container_platform/4.18/html/edge_computing/cnf-talm-for-cluster-updates">Documentacao OpenShift 4.18</a></p>
+<a href="https://docs.redhat.com/en/documentation/openshift_container_platform/4.20/html/edge_computing/cnf-talm-for-cluster-updates">Documentacao OpenShift 4.20</a></p>
 </body>
 </html>

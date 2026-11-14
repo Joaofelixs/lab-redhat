@@ -4,7 +4,7 @@ metadata:
   name: topology-aware-lifecycle-manager
   namespace: openshift-operators
 spec:
-  channel: "4.18"
+  channel: "4.20"
   name: topology-aware-lifecycle-manager
   source: redhat-operators
   sourceNamespace: openshift-marketplace

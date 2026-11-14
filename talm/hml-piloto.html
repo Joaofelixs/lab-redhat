@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="pt-BR">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TALM: preparação do piloto HML sem iniciar upgrade</title>
+<style>body{max-width:1040px;margin:auto;padding:24px;font:16px/1.7 system-ui;color:#222}h1{font-size:28px}h2{font-size:23px}pre{background:#f2f4f6;padding:16px;overflow:auto}table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:8px;border-bottom:1px solid #ddd}a{color:#005ea8}</style>
+<h1>TALM: piloto HML preparado, execução bloqueada</h1>
+<p>Preparação em 14/11/2026. O pedido foi preparar o teste sem disparar
+atualizações. O hub está em 4.20.46; o TALM instalado é 4.20.5, canal 4.20,
+com aprovação manual de InstallPlan. O TALM executa no hub, não nos destinos.</p>
+<table><tr><th>Cluster</th><th>ClusterSet</th><th>Selecionado</th></tr>
+<tr><td>cluster-2dns8</td><td>hml</td><td>Sim, piloto e único destino</td></tr>
+<tr><td>cluster-xgdnd</td><td>prod</td><td>Não</td></tr>
+<tr><td>local-cluster</td><td>infra</td><td>Não</td></tr></table>
+<h2>O que foi validado</h2>
+<p>O HML está em 4.18.56, arquitetura ARM64, plataforma AWS. Seu node está
+Ready, os MCPs estão Updated e não estão Degraded ou Updating. Os operadores
+estão disponíveis, sem degradação, e sem Upgradeable=False na consulta inicial.
+Ele é SNO; o reboot interrompe temporariamente suas aplicações. O Interconnect
+do HML conecta ao cluster PROD, que deve permanecer disponível durante o teste.</p>
+<p>O grafo oficial ARM64 em stable-4.19 anuncia 4.18.56 → 4.19.55. O salto
+4.19.55 → 4.20.46 aparece no conjunto de atualizações condicionais com o risco
+VSphereConfigCloudControllerCrash. O HML usa AWS, mas a decisão final deve ser
+reavaliada pelo CVO depois da etapa 4.19. Não force nem ignore precondições.</p>
+<p>O ConfigMap admin-acks do HML estava vazio. Nenhum reconhecimento foi gravado
+automaticamente. Antes de executar, revise as APIs removidas de cada transição
+e os bloqueios apresentados pelo CVO. Confirme backup/recuperação, compatibilidade
+dos operadores e a janela de manutenção; esses itens não foram aprovados pelo
+simples fato de o TALM estar instalado.</p>
+<h2>Como a seleção foi limitada</h2>
+<p>Um administrador vinculou o ManagedClusterSet hml ao namespace talm-upgrades.
+Esse vínculo permite que o Placement enxergue o conjunto; não inicia upgrade.
+O Placement e os dois CGUs exigem conjuntamente:</p>
+<pre>name: cluster-2dns8
+cluster.open-cluster-management.io/clusterset: hml
+vendor: OpenShift
+upgrades.lab-redhat.io/campaign: ocp-4-20-46
+upgrades.lab-redhat.io/engine: talm</pre>
+<p>O PlacementDecision foi conferido: somente cluster-2dns8. As policies de
+upgrade não foram propagadas para cluster-xgdnd. A label de campanha não é uma
+aprovação. O ClusterSet sozinho também não define ordem nem concorrência.</p>
+<h2>Policies e campanhas</h2>
+<p>As duas policies, tanto o recurso raiz quanto a ConfigurationPolicy interna,
+usam remediationAction: inform. NonCompliant é esperado: o HML ainda está na
+versão de origem. Isso não significa falha de conectividade nem autorização
+para aplicar a versão. O TALM exigiu upstream, channel e version para resolver
+a release sem image explícita; upstream foi incluído nos manifests.</p>
+<pre>fleet-4-19-55
+  enable: false
+  policy: talm-upgrade-4-19-55
+  destino: cluster-2dns8
+
+fleet-4-20-46
+  enable: false
+  policy: talm-upgrade-4-20-46
+  blockingCRs: fleet-4-19-55
+  destino: cluster-2dns8</pre>
+<p>Ambas usam canaries: [cluster-2dns8], maxConcurrency: 1, timeout: 240 minutos,
+batchTimeoutAction: abort, backup: false e preCaching: false. Nenhuma deve ter
+status.status.startedAt preenchido enquanto aguarda autorização.</p>
+<h2>Particularidade: CGUs automáticos do ZTP</h2>
+<p>Ao instalar o TALM, seu controlador ManagedClusterForCGU criou registros
+iniciais em ztp-install para os clusters já existentes. Esses registros não
+tinham managedPolicies e foram imediatamente concluídos sem atualização.
+Foram inspecionados e colocados em enable: false. Não são as campanhas de
+upgrade, que ficam em talm-upgrades. O controlador também acrescentou a label
+ztp-done. Não confunda esse marcador de inicialização com uma versão atualizada.</p>
+<h2>Argo CD e a autorização futura</h2>
+<p>As Applications talm-upgrade-policies e talm-upgrade-campaigns usam o Git como
+fonte e têm Auto Sync, prune e selfHeal desligados. As policies observacionais
+e campanhas desabilitadas foram preparadas administrativamente, antes de criar
+as Applications. Não foram criados hooks que habilitam campanhas.</p>
+<p>Não faça alterações para enable: true agora. Em uma janela autorizada, após
+as revisões pendentes, alterar os dois CGUs para enable: true no Git e sincronizar
+a Application de campanhas permite a sequência automática: a etapa 4.20 aguarda
+Succeeded da etapa 4.19. Se quiser revisar antes do segundo salto, habilite
+somente o primeiro. Uma dependência ordena etapas, mas não corrige uma release
+inelegível ou um admin-ack pendente.</p>
+<h2>Comandos de consulta, sem disparar</h2>
+<pre>oc -n openshift-operators get csv topology-aware-lifecycle-manager.v4.20.5
+oc -n talm-upgrades get managedclustersetbindings
+oc -n talm-upgrades get placementdecisions -o yaml
+oc -n talm-upgrades get policies.policy.open-cluster-management.io
+oc -n talm-upgrades get clustergroupupgrades.ran.openshift.io
+oc -n talm-upgrades get clustergroupupgrades.ran.openshift.io \
+  -o custom-columns=NAME:.metadata.name,ENABLED:.spec.enable,STARTED:.status.status.startedAt
+oc -n openshift-gitops get applications.argoproj.io talm-upgrade-policies talm-upgrade-campaigns</pre>
+<p>A confirmação de que nada começou vem também do ClusterVersion remoto:
+HML e PROD devem continuar na versão original, com Progressing=False e sem uma
+nova desiredUpdate. Nenhum canal do HML foi alterado nesta preparação.</p>
+<p><a href="index.html">Guia TALM</a> |
+<a href="https://docs.redhat.com/en/documentation/openshift_container_platform/4.20/html/edge_computing/cnf-talm-for-cluster-updates">Documentação TALM 4.20</a> |
+<a href="https://github.com/openshift-kni/cluster-group-upgrades-operator">Controladores e comportamento do operador</a>.</p>
+</html>

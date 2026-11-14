@@ -23,6 +23,7 @@ spec:
             metadata:
               name: version
             spec:
+              upstream: https://api.openshift.com/api/upgrades_info/v1/graph
               channel: stable-4.20
               desiredUpdate:
                 version: 4.20.46

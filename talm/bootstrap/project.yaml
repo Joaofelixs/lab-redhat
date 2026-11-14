@@ -18,7 +18,5 @@ spec:
     kind: PlacementBinding
   - group: cluster.open-cluster-management.io
     kind: Placement
-  - group: cluster.open-cluster-management.io
-    kind: ManagedClusterSetBinding
   - group: ran.openshift.io
     kind: ClusterGroupUpgrade

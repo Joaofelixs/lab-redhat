@@ -13,6 +13,8 @@ spec:
     namespace: talm-upgrades
   clusterLabelSelectors:
   - matchLabels:
+      name: cluster-2dns8
+      cluster.open-cluster-management.io/clusterset: hml
       vendor: OpenShift
       upgrades.lab-redhat.io/campaign: ocp-4-20-46
       upgrades.lab-redhat.io/engine: talm
@@ -23,7 +25,7 @@ spec:
   managedPolicies:
   - talm-upgrade-4-20-46
   remediationStrategy:
-    canaries: []
+    canaries: [cluster-2dns8]
     maxConcurrency: 1
     timeout: 240
   batchTimeoutAction: abort
