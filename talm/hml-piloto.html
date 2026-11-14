@@ -69,7 +69,11 @@ ztp-done. Não confunda esse marcador de inicialização com uma versão atualiz
 <p>As Applications talm-upgrade-policies e talm-upgrade-campaigns usam o Git como
 fonte e têm Auto Sync, prune e selfHeal desligados. As policies observacionais
 e campanhas desabilitadas foram preparadas administrativamente, antes de criar
-as Applications. Não foram criados hooks que habilitam campanhas.</p>
+as Applications. Depois foi feita uma sincronização inicial somente desses
+recursos: ambas ficaram Synced, com operação Succeeded. Os dois CGUs passaram
+a validação (Validated=True), ficaram em NotEnabled e sem startedAt.
+Essa sincronização de preparação não aprovou upgrade. Não foram criados hooks
+que habilitam campanhas.</p>
 <p>Não faça alterações para enable: true agora. Em uma janela autorizada, após
 as revisões pendentes, alterar os dois CGUs para enable: true no Git e sincronizar
 a Application de campanhas permite a sequência automática: a etapa 4.20 aguarda
