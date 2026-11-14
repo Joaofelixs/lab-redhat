@@ -1,0 +1,21 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: talm-prod-bootstrap
+  namespace: openshift-gitops
+spec:
+  sourceRepos:
+  - https://github.com/Joaofelixs/lab-redhat.git
+  destinations:
+  - server: https://kubernetes.default.svc
+    namespace: talm-upgrades-prod
+  clusterResourceWhitelist:
+  - group: ""
+    kind: Namespace
+  namespaceResourceWhitelist:
+  - group: cluster.open-cluster-management.io
+    kind: ManagedClusterSetBinding
+  - group: rbac.authorization.k8s.io
+    kind: Role
+  - group: rbac.authorization.k8s.io
+    kind: RoleBinding

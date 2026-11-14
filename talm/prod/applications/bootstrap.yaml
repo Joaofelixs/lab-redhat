@@ -1,0 +1,19 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: talm-prod-bootstrap
+  namespace: openshift-gitops
+spec:
+  project: talm-prod-bootstrap
+  source:
+    repoURL: https://github.com/Joaofelixs/lab-redhat.git
+    targetRevision: main
+    path: talm/prod/bootstrap
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: talm-upgrades-prod
+  syncPolicy:
+    automated:
+      enabled: false
+      prune: false
+      selfHeal: false

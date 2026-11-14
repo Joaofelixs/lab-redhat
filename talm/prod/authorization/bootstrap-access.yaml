@@ -1,0 +1,54 @@
+# Administrator seed: not part of the Argo bootstrap source.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: argocd-talm-prod-bootstrap
+  namespace: talm-upgrades-prod
+rules:
+- apiGroups: [cluster.open-cluster-management.io]
+  resources: [managedclustersetbindings]
+  verbs: [get, list, watch, create, update, patch]
+- apiGroups: [rbac.authorization.k8s.io]
+  resources: [roles, rolebindings]
+  verbs: [get, list, watch, create, update, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: argocd-talm-prod-bootstrap
+  namespace: talm-upgrades-prod
+subjects:
+- kind: ServiceAccount
+  name: openshift-gitops-argocd-application-controller
+  namespace: openshift-gitops
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: argocd-talm-prod-bootstrap
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: argocd-talm-prod-bootstrap
+rules:
+- apiGroups: [cluster.open-cluster-management.io]
+  resources: [managedclustersets/bind]
+  resourceNames: [prod]
+  verbs: [create]
+- apiGroups: [""]
+  resources: [namespaces]
+  resourceNames: [talm-upgrades-prod]
+  verbs: [get, update, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: argocd-talm-prod-bootstrap
+subjects:
+- kind: ServiceAccount
+  name: openshift-gitops-argocd-application-controller
+  namespace: openshift-gitops
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: argocd-talm-prod-bootstrap
