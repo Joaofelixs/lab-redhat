@@ -6,7 +6,7 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-options: Prune=false
 spec:
-  enable: false
+  enable: true
   preCaching: false
   blockingCRs:
   - name: fleet-4-19-55
