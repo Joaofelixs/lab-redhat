@@ -9,8 +9,10 @@ spec:
   - missingkey=error
   generators:
   - list:
-      # Add only explicitly approved ManagedCluster names. Empty means no upgrades.
-      elements: []
+      # Creates the hub pilot Application only; manual Sync is still required.
+      elements:
+      - cluster: local-cluster
+        batch: piloto
   syncPolicy:
     applicationsSync: create-update
     preserveResourcesOnDeletion: true

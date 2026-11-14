@@ -17,8 +17,8 @@
 <p>Este fluxo guarda no Git a intencao de atualizar clusters. Ele usa o Argo CD
 para criar recursos ClusterCurator no hub ACM. O ClusterCurator solicita e acompanha
 a atualizacao; o Cluster Version Operator de cada OpenShift executa o upgrade.</p>
-<p><strong>Estado inicial seguro:</strong> nenhum cluster selecionado e nenhuma
-sincronizacao automatica. A campanha proposta passa por 4.19.55 e termina em
+<p><strong>Estado configurado:</strong> local-cluster selecionado como piloto,
+mas com sincronizacao automatica explicitamente desativada. A campanha proposta passa por 4.19.55 e termina em
 4.20.46. Registrar essas versoes no Git nao aprova nem inicia a atualizacao.</p>
 
 <h2>1. Entender os componentes</h2>
@@ -61,9 +61,11 @@ namespace; nao execute campanhas concorrentes para o mesmo cluster.</p>
 <pre><code>oc apply -k gitops-upgrades/
 oc get applicationset ocp-upgrades -n openshift-gitops
 oc get applications -n openshift-gitops -l upgrades.lab-redhat.io/batch</code></pre>
-<p>O primeiro comando cria o projeto restrito e o ApplicationSet. O projeto
+<p>O primeiro comando cria o projeto restrito, o ApplicationSet e gera a Application
+upgrade-local-cluster, que aguarda Sync manual. O projeto
 permite somente ClusterCurator nos namespaces do hub, nao Deployments ou
-ClusterRoleBindings. A lista elements esta vazia: nenhuma atualizacao e disparada.
+ClusterRoleBindings. Nenhuma atualizacao e disparada ao criar a Application.
+Para nao gerar nenhuma Application, use elements: [] no generator.
 A instancia Argo CD deve ter permissao para gerenciar ClusterCurator nesses
 namespaces; AppProject restringe operacoes, mas nao concede RBAC Kubernetes.</p>
 
@@ -96,8 +98,9 @@ Nao use force para ignorar a condicao. O grafo e dinamico; consulte novamente
 no momento da aprovacao. A disponibilidade do primeiro salto em stable-4.19
 nao garante que o curator conseguira resolver toda a sequencia com o canal
 stable-4.20: confira o caminho no canal da campanha antes de sincronizar.</p>
-<p>Depois, em gitops-upgrades/01-applicationset.yaml, substitua elements: [] por
-uma lista explicita. Exemplo ilustrativo, nao um cluster existente:</p>
+<p>Em gitops-upgrades/01-applicationset.yaml, a lista ja inclui local-cluster
+como piloto. Para adicionar outro destino, use seu nome ManagedCluster.
+Exemplo ilustrativo, nao um cluster existente:</p>
 <pre><code>elements:
 - cluster: cluster-dev-01
   batch: piloto</code></pre>
@@ -106,7 +109,8 @@ ainda nao seja gerenciada por uma Application de bootstrap:</p>
 <pre><code>oc apply -k gitops-upgrades/</code></pre>
 <p>O ApplicationSet le a lista do seu recurso no hub, nao diretamente do arquivo
 no Git. Por isso e necessario reconciliar essa estrutura apos mudar a lista.</p>
-<p><strong>Nao inclua local-cluster por engano:</strong> ele e o proprio hub.
+<p><strong>O piloto local-cluster e o proprio hub:</strong> ele foi selecionado
+para gerar a Application, nao como aprovacao para executar o upgrade.
 Em um SNO, seu upgrade reinicia o unico node e interrompe temporariamente ACM,
 Argo CD, console e aplicacoes hospedadas. Atualize o hub em uma campanha separada.</p>
 
