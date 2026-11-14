@@ -1,0 +1,114 @@
+# Apply separately as an administrator; this is not in the existing bootstrap.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hub-upgrade-runner
+  namespace: local-cluster
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: hub-upgrade-runner
+rules:
+- apiGroups: [config.openshift.io]
+  resources: [clusterversions]
+  resourceNames: [version]
+  verbs: [get, patch]
+- apiGroups: [config.openshift.io]
+  resources: [clusteroperators]
+  verbs: [list]
+- apiGroups: [""]
+  resources: [nodes]
+  verbs: [list]
+- apiGroups: [machineconfiguration.openshift.io]
+  resources: [machineconfigpools]
+  verbs: [list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: hub-upgrade-runner
+subjects:
+- kind: ServiceAccount
+  name: hub-upgrade-runner
+  namespace: local-cluster
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: hub-upgrade-runner
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: hub-upgrade-state
+  namespace: local-cluster
+rules:
+- apiGroups: [""]
+  resources: [configmaps]
+  resourceNames: [hub-upgrade-state]
+  verbs: [get, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: hub-upgrade-state
+  namespace: local-cluster
+subjects:
+- kind: ServiceAccount
+  name: hub-upgrade-runner
+  namespace: local-cluster
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: hub-upgrade-state
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: hub-upgrade-observe-jobs
+  namespace: local-cluster
+rules:
+- apiGroups: [batch]
+  resources: [jobs]
+  verbs: [list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: hub-upgrade-observe-jobs
+  namespace: local-cluster
+subjects:
+- kind: ServiceAccount
+  name: hub-upgrade-runner
+  namespace: local-cluster
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: hub-upgrade-observe-jobs
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: argocd-hub-workflow
+  namespace: local-cluster
+rules:
+- apiGroups: [""]
+  resources: [configmaps]
+  verbs: [get, list, watch, create, patch, update]
+- apiGroups: [batch]
+  resources: [jobs]
+  verbs: [get, list, watch, create, patch, update]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: argocd-hub-workflow
+  namespace: local-cluster
+subjects:
+- kind: ServiceAccount
+  name: openshift-gitops-argocd-application-controller
+  namespace: openshift-gitops
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: argocd-hub-workflow

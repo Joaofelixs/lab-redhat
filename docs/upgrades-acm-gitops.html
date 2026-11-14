@@ -164,6 +164,11 @@ adicional que espere conclusao e execute verificacoes antes de avancar.</p>
 clusters. O campo batch e organizacional, nao um controlador de concorrencia.</p>
 
 <h2>7. Falhas, repeticoes e limpeza</h2>
+<p><strong>Alternativa preparada para saltos automaticos no hub:</strong>
+o <a href="hub-upgrade-automatico.html">workflow do hub</a> usa um Job com
+estado e consulta o CVO diretamente, sem precisar recriar curators entre
+etapas. Sua ativacao e separada e a aprovacao inicial continua manual.
+Nao execute os dois mecanismos simultaneamente.</p>
 <p>O controlador pode alterar desiredCuration ao terminar. Isso pode deixar a
 Application OutOfSync. Nao configure selfHeal nem ressincronize sem revisar:
 reaplicar desiredCuration: upgrade pode solicitar nova execucao.</p>

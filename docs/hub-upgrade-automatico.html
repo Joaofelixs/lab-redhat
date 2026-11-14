@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="pt-BR">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Upgrade do hub: saltos automáticos com aprovação inicial</title>
+<style>body{max-width:1000px;margin:auto;padding:24px;font:16px/1.7 system-ui;color:#222}pre{background:#f2f4f6;padding:16px;overflow:auto}h1{font-size:28px}a{color:#005ea8}</style>
+<h1>Upgrade do hub: saltos automáticos com aprovação inicial</h1>
+<p>Este fluxo foi preparado para o hub SNO do laboratório. Não é TALM nem
+uma funcionalidade nativa do ClusterCurator: é uma automação customizada,
+versionada no Git, que usa a API do Cluster Version Operator (CVO).
+Foi testada localmente com respostas simuladas, mas ainda não foi executada
+de ponta a ponta no cluster. Sua criação no Git não inicia uma atualização.</p>
+<h2>Por que mudar a execução?</h2>
+<p>O curator falhou no monitoramento da etapa intermediária, embora o OpenShift
+tenha concluído a 4.19.55. Depois, a remoção de intermediateUpdate foi rejeitada
+por imutabilidade. Uma nova campanha também falhou com Provided channel is not
+valid, apesar de o CVO anunciar a versão final como recomendada. Este fluxo não
+altera nem recria curators entre os saltos: o CVO é a fonte de verdade.</p>
+<h2>O que acontece depois da aprovação?</h2>
+<pre>Sync manual inicial no Argo CD
+  → Job lê o plano no Git e o histórico real do ClusterVersion
+  → pula etapas já concluídas
+  → aguarda COs, nodes e MCPs saudáveis
+  → seleciona o canal da próxima etapa
+  → espera a versão aparecer entre as atualizações recomendadas
+  → solicita a release por digest, sem force
+  → aguarda a conclusão e a saúde do cluster
+  → segue automaticamente para a próxima etapa</pre>
+<p>Na origem 4.18.42, o plano faz 4.19.55 e depois 4.20.46. Se o cluster já
+concluiu 4.19.55, solicita apenas 4.20.46. Se já concluiu 4.20.46, verifica a
+saúde e termina sem solicitar outra atualização. Versões fora do plano são
+bloqueadas, em vez de assumir um caminho ou tentar downgrade.</p>
+<h2>Onde definir as versões</h2>
+<p>Arquivo upgrades/hub-workflow/plan.json:</p>
+<pre>{
+  "sources": ["4.18.42"],
+  "stages": [
+    {"version": "4.19.55", "channel": "stable-4.19"},
+    {"version": "4.20.46", "channel": "stable-4.20"}
+  ]
+}</pre>
+<p>Não edite o plano nem o código durante uma campanha ativa. Para outra campanha,
+revise o caminho suportado e use outro nome de Job. O Job não tem TTL e não é
+um hook recriado em todo Sync. Um Job concluído permanece como registro;
+sincronizações posteriores não devem repetir a campanha.</p>
+<h2>Preparar e ativar uma única vez</h2>
+<p>Antes da ativação, valide backup e recuperação do SNO, compatibilidade de
+operadores, aplicações e APIs removidas. Revise e registre os admin-acks exigidos.
+A automação não aprova esses reconhecimentos e não ignora Upgradeable=False.
+Um bloqueio legítimo ainda exige correção humana: automatizar não significa
+ignorar pré-requisitos de segurança.</p>
+<p>Não execute simultaneamente a Application antiga upgrade-local-cluster.
+Confirme que ela está com Auto Sync desligado, sem operação ativa, e que não
+há Jobs curator-job ativos. O novo Job também verifica essa concorrência antes
+de cada etapa. Ele não cancela operações existentes.</p>
+<pre>oc get clusterversion
+oc get co
+oc get nodes
+oc get mcp
+oc -n local-cluster get jobs
+oc -n openshift-gitops get applications.argoproj.io upgrade-local-cluster -o yaml
+
+# Preparação administrativa: NÃO solicita upgrade.
+oc apply -f gitops-upgrades/hub-workflow-bootstrap.yaml
+
+# Cria projeto e Application com Auto Sync desligado.
+oc apply -f gitops-upgrades/hub-workflow-application.yaml</pre>
+<p>Depois de publicar esses arquivos no Git, abra a Application
+<strong>hub-upgrade-workflow</strong>, revise o diff e faça um único Sync na
+janela autorizada. Esse Sync cria o Job e pode iniciar a atualização imediatamente.
+Não sincronize a campanha antiga. Não é necessário outro Sync entre os saltos.</p>
+<h2>Retomada, estado e limites</h2>
+<p>O ConfigMap hub-upgrade-state guarda a fase, a versão e o plano observado.
+O histórico Completed do ClusterVersion determina a retomada; o Job não confia
+apenas no próprio checkpoint. Após reboot do hub, ele lê novamente o estado do
+CVO antes de escrever. Se a atualização aprovada já estiver em curso, apenas a
+acompanha. Se houver outro destino em execução, ele para.</p>
+<p>O Job tolera indisponibilidade temporária da API, relê o token projetado e
+usa TLS com a CA do cluster. Atualizações usam resourceVersion como teste
+atômico, para não sobrescrever uma alteração concorrente. O prazo total é
+12 horas, com até três tentativas adicionais do pod. Ao exceder esses limites,
+o Job falha e exige diagnóstico; não há garantia de disponibilidade do hub
+enquanto seu único node reinicia.</p>
+<p>As permissões são separadas: administrador instala RBAC; Argo cria apenas
+Jobs e ConfigMaps no namespace da campanha; o runner pode alterar somente o
+ClusterVersion chamado version e seu checkpoint. Essa permissão ainda é
+sensível, pois permite atualizar o hub. Revise as contas autorizadas a criar
+pods nesse namespace. Em produção, fixe a imagem Python por digest após
+validá-la e faça testes em um ambiente descartável.</p>
+<h2>Acompanhar</h2>
+<pre>oc -n local-cluster get job hub-upgrade-4-20-46
+oc -n local-cluster logs job/hub-upgrade-4-20-46 --follow
+oc -n local-cluster get cm hub-upgrade-state -o yaml
+oc get clusterversion
+oc get co
+oc get mcp</pre>
+<p>Argo Synced significa configuração aplicada. Job Complete e a versão final
+Completed no ClusterVersion, com operadores saudáveis, são as verificações de
+conclusão. Não exclua um Job ativo para testar repetição. Reverter Git não
+faz downgrade nem cancela uma atualização já aceita pelo CVO.</p>
+<h2>Validar o código sem alterar o cluster</h2>
+<pre>python3 -m unittest discover -s tests -p test_hub_upgrade.py -v
+oc kustomize upgrades/hub-workflow</pre>
+<p><a href="upgrades-acm-gitops.html">Fluxo anterior com ClusterCurator</a></p>
+</html>

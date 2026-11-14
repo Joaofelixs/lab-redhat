@@ -1,0 +1,13 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: local-cluster
+resources:
+- job.yaml
+- state.yaml
+configMapGenerator:
+- name: hub-upgrade-runner
+  files:
+  - runner.py
+  - plan.json
+generatorOptions:
+  disableNameSuffixHash: true

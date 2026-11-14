@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hub-upgrade-state
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false
+data: {}

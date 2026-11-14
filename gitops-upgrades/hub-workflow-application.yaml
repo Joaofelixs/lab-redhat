@@ -1,0 +1,45 @@
+# Explicit opt-in. Do not apply while the old curator campaign is active.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: hub-upgrade-workflow
+  namespace: openshift-gitops
+spec:
+  sourceRepos:
+  - https://github.com/Joaofelixs/lab-redhat.git
+  destinations:
+  - server: https://kubernetes.default.svc
+    namespace: local-cluster
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+  - group: ""
+    kind: ConfigMap
+  - group: batch
+    kind: Job
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: hub-upgrade-workflow
+  namespace: openshift-gitops
+spec:
+  project: hub-upgrade-workflow
+  source:
+    repoURL: https://github.com/Joaofelixs/lab-redhat.git
+    targetRevision: main
+    path: upgrades/hub-workflow
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: local-cluster
+  ignoreDifferences:
+  - group: ""
+    kind: ConfigMap
+    name: hub-upgrade-state
+    jsonPointers: [/data]
+  syncPolicy:
+    automated:
+      enabled: false
+      prune: false
+      selfHeal: false
+    syncOptions:
+    - RespectIgnoreDifferences=true

@@ -1,0 +1,48 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: hub-upgrade-4-20-46
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/sync-options: Prune=false
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 43200
+  template:
+    spec:
+      serviceAccountName: hub-upgrade-runner
+      restartPolicy: Never
+      terminationGracePeriodSeconds: 30
+      tolerations:
+      - key: node-role.kubernetes.io/master
+        operator: Exists
+        effect: NoSchedule
+      containers:
+      - name: workflow
+        image: registry.access.redhat.com/ubi9/python-312:latest
+        command: [python3, -u, /plan/runner.py]
+        env:
+        - name: PYTHONDONTWRITEBYTECODE
+          value: "1"
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 500m
+            memory: 192Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: [ALL]
+          seccompProfile:
+            type: RuntimeDefault
+        volumeMounts:
+        - name: plan
+          mountPath: /plan
+          readOnly: true
+      volumes:
+      - name: plan
+        configMap:
+          name: hub-upgrade-runner
