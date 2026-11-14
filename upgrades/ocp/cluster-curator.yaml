@@ -8,8 +8,7 @@ metadata:
 spec:
   desiredCuration: upgrade
   upgrade:
-    # Validate each hop in the target cluster; the final hop has a conditional risk.
+    # Resume from completed 4.19.55; validate the offered update before manual Sync.
     channel: stable-4.20
-    intermediateUpdate: 4.19.55
     desiredUpdate: 4.20.46
     monitorTimeout: 180

@@ -95,9 +95,11 @@ ela precisa estar disponivel no caminho suportado de cada cluster selecionado.</
   desiredCuration: upgrade
   upgrade:
     channel: stable-4.20
-    intermediateUpdate: 4.19.55
     desiredUpdate: 4.20.46
     monitorTimeout: 180</code></pre>
+<p><strong>Estado da campanha em 14/11/2026:</strong> a versao 4.19.55 foi
+concluida. O manifesto atual solicita somente 4.19.55 → 4.20.46 e nao possui
+intermediateUpdate. Nao aplique esta campanha em clusters ainda na 4.18.</p>
 <p><strong>intermediateUpdate</strong> e a versao completa da etapa intermediaria;
 <strong>desiredUpdate</strong> e o destino final. Neste lab, a versao de origem
 verificada foi 4.18.42: o fluxo proposto e 4.18.42 → 4.19.55 → 4.20.46.
@@ -172,6 +174,29 @@ recursos de campanhas concluidas somente apos confirmar seu estado.</p>
 <p><strong>Reverter um commit nao faz downgrade do OpenShift.</strong> Remover
 o ClusterCurator ou fechar o Argo CD tambem nao desfaz um upgrade em andamento.
 Em caso de falha, interrompa novos lotes e investigue o cluster afetado.</p>
+<h3>Retomada do segundo salto no laboratorio</h3>
+<p>O primeiro salto terminou no OpenShift, mas o Job do curator falhou durante
+o monitoramento. A existencia do manifesto no Argo nao comprova a execucao.
+Em 14/11/2026 o canal ainda era stable-4.18, causando VersionNotFound. O canal
+foi corrigido para stable-4.20 sem solicitar uma nova versao. O admin-ack da
+4.20 ja estava registrado; ele nao substitui revisar o uso das APIs removidas.</p>
+<pre><code>oc get clusterversion
+oc get co
+oc adm upgrade
+oc -n local-cluster get clustercurator local-cluster -o yaml
+oc -n local-cluster get jobs,pods</code></pre>
+<p>Somente prossiga se a versao atual estiver Completed, sem atualizacao em
+andamento, e o destino estiver disponivel com suas condicoes avaliadas.
+Nao use force nem ignore riscos para contornar a verificacao.</p>
+<p>O manifesto no Git agora remove intermediateUpdate e mantem o destino
+4.20.46. Publique essa revisao e revise o diff de upgrade-local-cluster.
+Um Sync pode iniciar a execucao: nao o execute apenas para testar o diff.
+Se o recurso ainda aponta para um curatorJob inexistente, um novo Sync nao
+e prova de retomada. Revise a limpeza/recriacao do recurso de campanha com
+o administrador, depois de confirmar que nenhum Job ou upgrade esta ativo.
+Nao exclua o ManagedCluster, o namespace local-cluster ou o ClusterVersion.</p>
+<p>Aprovacao manual continua obrigatoria. Acompanhe as conditions do
+ClusterCurator e o history do ClusterVersion, nao somente Synced no Argo.</p>
 
 <h2>8. Ambientes sem internet</h2>
 <p>Este exemplo assume imagens acessiveis e uma versao anunciada ao cluster.
