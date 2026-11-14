@@ -1,0 +1,650 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Do Git ao upgrade: OpenShift com Argo CD, ACM e TALM</title>
+<style>
+body { max-width: 1040px; margin: auto; padding: 28px 20px; font: 16px/1.75 system-ui,sans-serif; color: #20252b; background: #fff; }
+h1 { font-size: 30px; line-height: 1.25; } h2 { font-size: 23px; margin-top: 36px; } h3 { font-size: 19px; margin-top: 26px; }
+pre { padding: 18px; background: #f2f4f6; overflow-x: auto; border-left: 4px solid #c9190b; font-size: 14px; line-height: 1.55; }
+code { overflow-wrap: anywhere; } pre code { overflow-wrap: normal; } a { color: #005ea8; }
+table { width: 100%; border-collapse: collapse; } td,th { text-align: left; padding: 10px; border-bottom: 1px solid #d4d9dd; vertical-align: top; overflow-wrap: anywhere; }
+.note { padding: 14px 18px; background: #eef7f8; border-left: 4px solid #087e8b; } nav a { display: inline-block; margin-right: 16px; }
+details { margin: 16px 0; } summary { cursor: pointer; font-weight: bold; }
+</style>
+</head>
+<body>
+<h1>Do Git ao upgrade: OpenShift com Argo CD, ACM e TALM</h1>
+<p>Um guia do laboratório para entender, publicar e preparar uma campanha de
+atualização de clusters. Os exemplos YAML abaixo são extraídos dos arquivos
+versionados neste repositório, não de um ambiente supostamente instalado.</p>
+<p class="note"><strong>Estado deste trabalho:</strong> arquivos preparados e
+validados localmente. Não instalamos o TALM, não criamos estas Applications no
+cluster e não iniciamos uma campanha. Os comandos de aplicação são um roteiro
+para uma futura janela autorizada, não ações já executadas.</p>
+<nav aria-label="Conteúdo"><a href="#conceitos">Conceitos</a><a href="#git">Git</a><a href="#instalacao">Instalação</a><a href="#argocd">Argo CD</a><a href="#campanha">Campanha</a><a href="#validacao">Validação</a><a href="#problemas">Diagnóstico</a></nav>
+
+<h2 id="conceitos">1. Entenda antes de executar</h2>
+<p>Imagine cinco clusters de lojas. Você quer atualizar primeiro uma loja piloto,
+verificar o resultado e depois atender as demais sem interromper todas ao mesmo
+tempo. O Git registra o plano; o TALM organiza sua execução. Esse controle não
+transforma um caminho de atualização incompatível em um caminho seguro.</p>
+<table><thead><tr><th>Componente</th><th>O que faz e por que existe</th></tr></thead><tbody>
+<tr><td>Git e GitHub</td><td>Git registra alterações locais; GitHub hospeda o repositório remoto. Commit registra uma revisão; push publica essa revisão.</td></tr>
+<tr><td>Argo CD</td><td>Lê o repositório e compara os manifests com o cluster. Refresh atualiza essa comparação; Sync aplica a configuração.</td></tr>
+<tr><td>ACM</td><td>Gerencia os clusters e distribui policies. O hub é a central; os spokes são os destinos gerenciados.</td></tr>
+<tr><td>Policy e conformidade</td><td>Uma regra descreve o resultado desejado. Compliant significa que as verificações declaradas foram satisfeitas; NonCompliant indica diferenças.</td></tr>
+<tr><td>Placement</td><td>Escolhe em quais clusters as policies são observadas. Não define concorrência de upgrade.</td></tr>
+<tr><td>TALM e CGU</td><td>O operador TALM coordena o plano descrito no ClusterGroupUpgrade: seleção, pilotos, lotes, dependências e timeout.</td></tr>
+<tr><td>CVO</td><td>O Cluster Version Operator de cada OpenShift executa a atualização da plataforma.</td></tr>
+</tbody></table>
+<pre><code>Git local → commit → push → GitHub
+                              ↓ leitura
+                           Argo CD
+                              ↓ Sync aprovado
+             policies ACM + ClusterGroupUpgrade no HUB
+                              ↓ TALM coordena os lotes
+                  CVO de cada cluster → atualização</code></pre>
+<p>As Applications deste guia apontam para a API do próprio hub. Não precisam
+cadastrar cada spoke como destino do Argo CD: o ACM distribui a configuração.
+Um namespace separa os recursos de gerenciamento; ele não é outro cluster.</p>
+
+<h2>2. Conheça as pastas e os limites de segurança</h2>
+<pre><code>talm/
+  operator/       Subscription do operador; aprovação manual
+  bootstrap/      namespace, vínculo infra, projeto e permissões
+  policies/       seleção e versões desejadas, sempre em inform
+  campaigns/      CGUs 4.19.55 e 4.20.46, enable: false
+  applications/   duas Applications, Auto Sync desligado</code></pre>
+<p>Não há Kustomization na raiz talm. Isso impede tratar todas as etapas como um
+único pacote indistinto. O fluxo anterior ClusterCurator, em gitops-upgrades e
+upgrades/ocp, não é convertido nem desativado por estes arquivos.</p>
+<p><strong>Não execute os dois mecanismos no mesmo cluster simultaneamente.</strong>
+A label engine=talm apenas seleciona este fluxo; ela não cancela um curator.
+Aguarde operações anteriores terminarem antes de migrar um destino.</p>
+<p>O próprio hub está excluído. Um hub SNO reiniciado interrompe o coordenador,
+a console e o Argo CD. Para aprender a coordenação da frota, use um spoke externo.</p>
+
+<h2 id="git">3. Publique os arquivos no Git</h2>
+<p>Trabalhe na cópia já existente do repositório. Se começar em outra máquina,
+clone o projeto e entre na pasta. Não crie um repositório dentro de outro.</p>
+<pre><code>git clone https://github.com/Joaofelixs/lab-redhat.git
+cd lab-redhat
+git status --short</code></pre>
+<p>Se já está em /home/joao/Documentos/lab-redhat, não clone novamente. O status
+mostra alterações locais. Depois de editar e validar os arquivos, publique somente
+os arquivos revisados, sem incluir kubeconfigs, tokens ou senhas:</p>
+<pre><code>git diff -- talm/
+git add talm/
+git diff --cached --check
+git diff --cached --stat
+git commit -m "Prepare TALM fleet upgrade campaign"
+git push origin main</code></pre>
+<p>Em uma equipe, prefira uma branch e um pull request com revisão antes do merge.
+Um push não aplica recursos sozinho: a Application precisa existir e, neste
+projeto, todas as sincronizações são manuais.</p>
+
+<h2>4. Confira os pré-requisitos</h2>
+<p>Você precisa de um hub com ACM, OpenShift GitOps e acesso administrativo para
+o bootstrap; pelo menos um spoke importado e saudável; o ClusterSet infra;
+acesso às imagens e às versões de atualização. Confirme compatibilidade entre
+ACM, TALM, versão do hub, spokes e operadores antes de instalar.</p>
+<pre><code># No hub: somente consulta
+oc whoami --show-server
+oc get managedclusters --show-labels
+oc get managedclusterset infra
+oc get clustercurators -A
+oc get multiclusterhub -A
+oc get argocds.argoproj.io -A
+
+# Em cada destino, usando seu contexto correto
+oc get clusterversion version
+oc adm upgrade
+oc get co
+oc get nodes
+oc get mcp</code></pre>
+<p>Antes de aprovar, os operadores, nodes e pools precisam estar saudáveis e os
+backups devem ser recuperáveis. Valide também aplicações, capacidade e janela
+de manutenção. Não use force para ignorar risco ou caminho não recomendado.</p>
+<p>4.19.55 e 4.20.46 são as versões propostas, não uma garantia de elegibilidade.
+O salto para 4.20.46 teve risco condicional de vSphere na consulta do lab.
+Confirme novamente o grafo e a avaliação do CVO de cada destino. Se o destino
+já está em 4.19 ou posterior, não execute cegamente a etapa intermediária.</p>
+
+<h2 id="instalacao">5. Instale o operador, somente quando autorizado</h2>
+<p>Um operador é um controller especializado. Instalar a Subscription disponibiliza
+o TALM; ainda não autoriza um upgrade da frota. O canal 4.18 está fixado no exemplo
+para evitar seguir automaticamente outro minor, mas deve ser reavaliado para
+a versão real do hub. O código usa aprovação manual de InstallPlan.</p>
+<p>Arquivo: <code>talm/operator/subscription.yaml</code></p>
+<pre><code class="language-yaml">apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: topology-aware-lifecycle-manager
+  namespace: openshift-operators
+spec:
+  channel: &quot;4.18&quot;
+  name: topology-aware-lifecycle-manager
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+  installPlanApproval: Manual
+</code></pre>
+<pre><code># ETAPA DE INSTALAÇÃO FUTURA: modifica o hub
+oc apply -k talm/operator/
+oc get subscription topology-aware-lifecycle-manager -n openshift-operators
+oc get installplan -n openshift-operators
+oc get csv -n openshift-operators</code></pre>
+<p>Inspecione o InstallPlan associado a esta Subscription e aprove somente esse
+plano. O namespace pode conter planos de outros operadores: não aprove todos.</p>
+<pre><code>oc get subscription topology-aware-lifecycle-manager -n openshift-operators   -o jsonpath='{.status.installPlanRef.name}{"\n"}'
+# Substitua o nome abaixo pelo plano inspecionado e aprovado.
+oc get installplan NOME_DO_PLANO -n openshift-operators -o yaml
+oc patch installplan NOME_DO_PLANO -n openshift-operators   --type=merge -p '{"spec":{"approved":true}}'
+oc wait crd/clustergroupupgrades.ran.openshift.io   --for=condition=Established --timeout=120s
+oc rollout status deployment/cluster-group-upgrades-controller-manager   -n openshift-operators --timeout=180s</code></pre>
+<p>A CRD ensina à API o que é ClusterGroupUpgrade. Sem ela, o sync de campanhas
+falha com no matches for kind. Antes de avançar, confirme também CSV Succeeded.</p>
+
+<h2>6. Prepare namespace, ClusterSet, projeto e RBAC</h2>
+<p>O bootstrap é uma tarefa administrativa separada. O namespace talm-upgrades
+guarda policies e campanhas no hub. Crie-o antes dos recursos namespaced:</p>
+<p>Arquivo: <code>talm/bootstrap/namespace.yaml</code></p>
+<pre><code class="language-yaml">apiVersion: v1
+kind: Namespace
+metadata:
+  name: talm-upgrades
+  annotations:
+    argocd.argoproj.io/sync-wave: &quot;-10&quot;
+</code></pre>
+<pre><code># Modifica o hub; execute apenas na preparação aprovada.
+oc apply -f talm/bootstrap/namespace.yaml
+oc wait namespace/talm-upgrades --for=jsonpath='{.status.phase}'=Active --timeout=60s
+oc apply -k talm/bootstrap/</code></pre>
+<p>O ManagedClusterSetBinding permite ao Placement desse namespace selecionar
+clusters do conjunto infra. Criar esse vínculo exige a permissão especial
+managedclustersets/bind. Por isso ele fica no bootstrap do administrador, não
+na Application de policies. Não concedemos essa permissão global ao Argo CD.</p>
+<p>Arquivo: <code>talm/bootstrap/cluster-set-binding.yaml</code></p>
+<pre><code class="language-yaml">apiVersion: cluster.open-cluster-management.io/v1beta2
+kind: ManagedClusterSetBinding
+metadata:
+  name: infra
+  namespace: talm-upgrades
+spec:
+  clusterSet: infra
+</code></pre>
+<details><summary>AppProject: repositório, destino e tipos de recurso permitidos</summary>
+<p>Arquivo: <code>talm/bootstrap/project.yaml</code></p>
+<pre><code class="language-yaml">apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: talm-upgrades
+  namespace: openshift-gitops
+spec:
+  description: Policies inform e campanhas TALM com aprovacao explicita
+  sourceRepos:
+  - https://github.com/Joaofelixs/lab-redhat.git
+  destinations:
+  - server: https://kubernetes.default.svc
+    namespace: talm-upgrades
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+  - group: policy.open-cluster-management.io
+    kind: Policy
+  - group: policy.open-cluster-management.io
+    kind: PlacementBinding
+  - group: cluster.open-cluster-management.io
+    kind: Placement
+  - group: ran.openshift.io
+    kind: ClusterGroupUpgrade
+</code></pre>
+</details>
+<p>AppProject é uma barreira do Argo CD. RBAC é a autorização da API Kubernetes.
+Uma configuração não substitui a outra. A Role abaixo permite somente os tipos
+necessários dentro de talm-upgrades; não concede cluster-admin nem delete.</p>
+<details><summary>Role e RoleBinding do application-controller</summary>
+<p>Arquivo: <code>talm/bootstrap/rbac.yaml</code></p>
+<pre><code class="language-yaml">apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: argocd-talm-upgrades
+  namespace: talm-upgrades
+rules:
+- apiGroups:
+  - policy.open-cluster-management.io
+  resources:
+  - policies
+  - placementbindings
+  verbs: [get, list, watch, create, update, patch]
+- apiGroups:
+  - cluster.open-cluster-management.io
+  resources:
+  - placements
+  verbs: [get, list, watch, create, update, patch]
+- apiGroups:
+  - ran.openshift.io
+  resources:
+  - clustergroupupgrades
+  verbs: [get, list, watch, create, update, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: argocd-talm-upgrades
+  namespace: talm-upgrades
+subjects:
+- kind: ServiceAccount
+  name: openshift-gitops-argocd-application-controller
+  namespace: openshift-gitops
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: argocd-talm-upgrades
+</code></pre>
+</details>
+<pre><code>oc auth can-i create policies.policy.open-cluster-management.io   -n talm-upgrades   --as=system:serviceaccount:openshift-gitops:openshift-gitops-argocd-application-controller
+oc auth can-i create clustergroupupgrades.ran.openshift.io   -n talm-upgrades   --as=system:serviceaccount:openshift-gitops:openshift-gitops-argocd-application-controller</code></pre>
+<p>Se sua instância Argo CD usa outro namespace ou ServiceAccount, ajuste o
+RoleBinding antes de aplicar. As permissões listadas são de gerenciamento no hub;
+os agentes do ACM precisam também estar autorizados e saudáveis nos destinos.</p>
+
+<h2 id="argocd">7. Conecte o repositório ao Argo CD</h2>
+<p>Acesse o Argo CD e entre pelo RHBK, usando uma identidade autorizada a gerenciar
+o projeto. No lab, o endereço configurado foi:</p>
+<p><a href="https://openshift-gitops-server-openshift-gitops.apps.ocp4.lab.local">Argo CD do laboratório</a>.</p>
+<p>Em Settings → Repositories → Connect Repo, selecione Git/HTTPS e informe
+https://github.com/Joaofelixs/lab-redhat.git. Para um repositório público, não
+é necessário fornecer senha. Para um privado, use uma credencial somente de
+leitura desse repositório ou uma deploy key; não reutilize um token administrador.</p>
+<p>A autenticação do usuário pelo RHBK não autentica o repo-server no GitHub.
+São conexões diferentes. Confirme Connection Status: Successful e mantenha a
+validação TLS habilitada. Não desative validação de certificado para resolver
+um problema de confiança; disponibilize a CA correta quando necessário.</p>
+<p>O Argo CD armazena suas credenciais Git em Secrets. Não versione um token em
+um Secret YAML: base64 não é criptografia. Se optar por gestão declarativa de
+credenciais, use um gerenciador apropriado, como External Secrets ou Sealed Secrets.</p>
+
+<h2>8. Cadastre as duas Applications</h2>
+<p>Separe a intenção de versão da autorização de execução. Uma Application
+gerencia as policies em inform; a outra gerencia os CGUs desativados. Ambas
+apontam para o hub e têm Auto Sync, prune e selfHeal desligados.</p>
+<details open><summary>Application das policies: path talm/policies</summary>
+<p>Arquivo: <code>talm/applications/policies.yaml</code></p>
+<pre><code class="language-yaml"># Reference only: create this Application separately when TALM is installed.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: talm-upgrade-policies
+  namespace: openshift-gitops
+spec:
+  project: talm-upgrades
+  source:
+    repoURL: https://github.com/Joaofelixs/lab-redhat.git
+    targetRevision: main
+    path: talm/policies
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: talm-upgrades
+  syncPolicy:
+    automated:
+      enabled: false
+      prune: false
+      selfHeal: false
+</code></pre>
+</details>
+<details><summary>Application das campanhas: path talm/campaigns</summary>
+<p>Arquivo: <code>talm/applications/campaigns.yaml</code></p>
+<pre><code class="language-yaml"># Reference only: create this Application separately when TALM is installed.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: talm-upgrade-campaigns
+  namespace: openshift-gitops
+spec:
+  project: talm-upgrades
+  source:
+    repoURL: https://github.com/Joaofelixs/lab-redhat.git
+    targetRevision: main
+    path: talm/campaigns
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: talm-upgrades
+  syncPolicy:
+    automated:
+      enabled: false
+      prune: false
+      selfHeal: false
+</code></pre>
+</details>
+<pre><code># Só cadastra as Applications; não faz Sync.
+oc apply -k talm/applications/
+oc get applications.argoproj.io -n openshift-gitops</code></pre>
+<p>Você também pode cadastrar essas configurações pela interface Argo CD ou
+pelo ACM integrado ao GitOps. Mantenha o projeto talm-upgrades, os paths e os
+destinos dos YAMLs. Não crie um segundo ApplicationSet gerenciando os mesmos
+objetos e deixe Auto Sync desmarcado. Não aponte uma Application com recursão
+para a raiz talm: bootstrap, operador e campanhas têm responsabilidades diferentes.</p>
+<p>Uma Application pode aparecer OutOfSync/Missing antes do primeiro Sync; isso
+é esperado. ComparisonError ou acesso negado ao Git precisam ser corrigidos.</p>
+
+<h2>9. Distribua as policies sem executar upgrades</h2>
+<p>Faça Refresh e revise o diff de talm-upgrade-policies. Depois do bootstrap e
+da instalação do operador, sincronize somente essa Application. Ela cria um
+Placement, um PlacementBinding e duas policies em inform. Não solicita alteração
+imediata de versão. O vínculo infra já foi preparado pelo administrador.</p>
+<details><summary>Seleção e associação das policies</summary>
+<p>Arquivo: <code>talm/policies/selection.yaml</code></p>
+<pre><code class="language-yaml">apiVersion: cluster.open-cluster-management.io/v1beta1
+kind: Placement
+metadata:
+  name: talm-ocp-4-20-46
+  namespace: talm-upgrades
+spec:
+  clusterSets:
+  - infra
+  predicates:
+  - requiredClusterSelector:
+      labelSelector:
+        matchLabels:
+          vendor: OpenShift
+          upgrades.lab-redhat.io/campaign: ocp-4-20-46
+          upgrades.lab-redhat.io/engine: talm
+        matchExpressions:
+        - key: local-cluster
+          operator: NotIn
+          values: [&quot;true&quot;]
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: PlacementBinding
+metadata:
+  name: talm-ocp-4-20-46-inform
+  namespace: talm-upgrades
+placementRef:
+  apiGroup: cluster.open-cluster-management.io
+  kind: Placement
+  name: talm-ocp-4-20-46
+subjects:
+- apiGroup: policy.open-cluster-management.io
+  kind: Policy
+  name: talm-upgrade-4-19-55
+- apiGroup: policy.open-cluster-management.io
+  kind: Policy
+  name: talm-upgrade-4-20-46
+</code></pre>
+</details>
+<details><summary>Policy da versão intermediária 4.19.55</summary>
+<p>Arquivo: <code>talm/policies/upgrade-4-19-55.yaml</code></p>
+<pre><code class="language-yaml">apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata:
+  name: talm-upgrade-4-19-55
+  namespace: talm-upgrades
+spec:
+  disabled: false
+  remediationAction: inform
+  policy-templates:
+  - objectDefinition:
+      apiVersion: policy.open-cluster-management.io/v1
+      kind: ConfigurationPolicy
+      metadata:
+        name: talm-upgrade-4-19-55
+      spec:
+        remediationAction: inform
+        severity: high
+        object-templates:
+        - complianceType: musthave
+          objectDefinition:
+            apiVersion: config.openshift.io/v1
+            kind: ClusterVersion
+            metadata:
+              name: version
+            spec:
+              channel: stable-4.19
+              desiredUpdate:
+                version: 4.19.55
+            # Status is observed, not patched. Do not consider spec alone complete.
+            status:
+              history:
+              - version: 4.19.55
+                state: Completed
+              conditions:
+              - type: Available
+                status: &quot;True&quot;
+              - type: Progressing
+                status: &quot;False&quot;
+              - type: Failing
+                status: &quot;False&quot;
+</code></pre>
+</details>
+<details><summary>Policy do destino final 4.20.46</summary>
+<p>Arquivo: <code>talm/policies/upgrade-4-20-46.yaml</code></p>
+<pre><code class="language-yaml">apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata:
+  name: talm-upgrade-4-20-46
+  namespace: talm-upgrades
+spec:
+  disabled: false
+  remediationAction: inform
+  policy-templates:
+  - objectDefinition:
+      apiVersion: policy.open-cluster-management.io/v1
+      kind: ConfigurationPolicy
+      metadata:
+        name: talm-upgrade-4-20-46
+      spec:
+        remediationAction: inform
+        severity: high
+        object-templates:
+        - complianceType: musthave
+          objectDefinition:
+            apiVersion: config.openshift.io/v1
+            kind: ClusterVersion
+            metadata:
+              name: version
+            spec:
+              channel: stable-4.20
+              desiredUpdate:
+                version: 4.20.46
+            # Status is observed, not patched. Do not consider spec alone complete.
+            status:
+              history:
+              - version: 4.20.46
+                state: Completed
+              conditions:
+              - type: Available
+                status: &quot;True&quot;
+              - type: Progressing
+                status: &quot;False&quot;
+              - type: Failing
+                status: &quot;False&quot;
+</code></pre>
+</details>
+<p>spec.desiredUpdate descreve a solicitação. status.history e conditions são
+observações da conclusão, não campos de status que você deve atualizar à mão.
+Isso evita considerar o upgrade pronto apenas porque o pedido foi registrado.
+O fluxo ainda não substitui testes funcionais de aplicações e serviços.</p>
+
+<h2>10. Selecione um spoke e defina o canário</h2>
+<p>Exemplo para um ManagedCluster externo já importado, chamado cluster-dev.
+Troque esse nome pelo real. Verifique se o cluster já pertence a outro
+ClusterSet antes de mudar sua associação; mover de conjunto afeta outros Placements.</p>
+<pre><code># Consulta no hub, sem alterar o cluster de destino.
+oc get managedcluster cluster-dev --show-labels
+oc get managedclusteraddons -n cluster-dev
+
+# Seleção FUTURA aprovada: modifica as labels do cadastro no hub.
+oc label managedcluster cluster-dev   cluster.open-cluster-management.io/clusterset=infra   upgrades.lab-redhat.io/campaign=ocp-4-20-46   upgrades.lab-redhat.io/engine=talm --overwrite</code></pre>
+<p>A seleção exige vendor=OpenShift, normalmente publicada pelo cadastro de
+distribuição. Não altere esse indicador para mascarar um tipo diferente de cluster.
+A exclusão local-cluster=true mantém o hub fora da campanha.</p>
+<p>Edite canaries em ambos os CGUs e publique a escolha no Git. Um canário
+precisa estar dentro da seleção; listá-lo ali não basta para selecioná-lo:</p>
+<pre><code>remediationStrategy:
+  canaries:
+  - cluster-dev
+  maxConcurrency: 1
+  timeout: 240</code></pre>
+<p>Depois confira a distribuição e espere as policies reportarem estado para
+os destinos. Antes de atualizar, NonCompliant por versão divergente é esperado.
+Ausência de status, TemplateError ou agentes indisponíveis não são prontidão.</p>
+<pre><code>oc get placementdecisions -n talm-upgrades -o yaml
+oc get policies.policy.open-cluster-management.io -n talm-upgrades
+oc get policies.policy.open-cluster-management.io -n cluster-dev</code></pre>
+
+<h2 id="campanha">11. Prepare e aprove a campanha na hora certa</h2>
+<p>Primeiro, sincronize talm-upgrade-campaigns com enable: false nos dois CGUs.
+Isso permite inspecionar a seleção e o plano antes de autorizar a remediação.
+Neste exemplo preCaching também está false, portanto não preparamos downloads.</p>
+<details><summary>Primeira etapa: fleet-4-19-55</summary>
+<p>Arquivo: <code>talm/campaigns/01-upgrade-4-19-55.yaml</code></p>
+<pre><code class="language-yaml">apiVersion: ran.openshift.io/v1alpha1
+kind: ClusterGroupUpgrade
+metadata:
+  name: fleet-4-19-55
+  namespace: talm-upgrades
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false
+spec:
+  enable: false
+  preCaching: false
+  clusterLabelSelectors:
+  - matchLabels:
+      vendor: OpenShift
+      upgrades.lab-redhat.io/campaign: ocp-4-20-46
+      upgrades.lab-redhat.io/engine: talm
+    matchExpressions:
+    - key: local-cluster
+      operator: NotIn
+      values: [&quot;true&quot;]
+  managedPolicies:
+  - talm-upgrade-4-19-55
+  remediationStrategy:
+    # Set explicit canary names here after importing and validating spokes.
+    canaries: []
+    maxConcurrency: 1
+    timeout: 240
+  batchTimeoutAction: abort
+</code></pre>
+</details>
+<details><summary>Segunda etapa: fleet-4-20-46</summary>
+<p>Arquivo: <code>talm/campaigns/02-upgrade-4-20-46.yaml</code></p>
+<pre><code class="language-yaml">apiVersion: ran.openshift.io/v1alpha1
+kind: ClusterGroupUpgrade
+metadata:
+  name: fleet-4-20-46
+  namespace: talm-upgrades
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false
+spec:
+  enable: false
+  preCaching: false
+  blockingCRs:
+  - name: fleet-4-19-55
+    namespace: talm-upgrades
+  clusterLabelSelectors:
+  - matchLabels:
+      vendor: OpenShift
+      upgrades.lab-redhat.io/campaign: ocp-4-20-46
+      upgrades.lab-redhat.io/engine: talm
+    matchExpressions:
+    - key: local-cluster
+      operator: NotIn
+      values: [&quot;true&quot;]
+  managedPolicies:
+  - talm-upgrade-4-20-46
+  remediationStrategy:
+    canaries: []
+    maxConcurrency: 1
+    timeout: 240
+  batchTimeoutAction: abort
+</code></pre>
+</details>
+<p>Para uma aprovação por salto, mude apenas o primeiro enable para true no Git,
+faça commit/push e, na janela combinada, execute Sync da Application de campanhas.
+Após validar a conclusão da 4.19, aprove a segunda etapa da mesma forma.</p>
+<p>Para uma aprovação única da sequência, os dois enable podem ser aprovados
+no mesmo commit. A segunda etapa continua bloqueada por blockingCRs até a
+primeira concluir com sucesso. Isso termina a etapa 4.19 na frota selecionada
+antes de iniciar a 4.20; não termina os dois saltos de cada cluster antes do próximo.</p>
+<pre><code># Depois de editar os enable e revisar os participantes:
+git diff -- talm/campaigns/
+git add talm/campaigns/
+git commit -m "Approve TALM upgrade maintenance window"
+git push origin main
+
+# CLI Argo CD autenticada, alternativa ao botão Sync:
+argocd app diff talm-upgrade-campaigns
+argocd app sync talm-upgrade-campaigns</code></pre>
+<p class="note"><strong>Aqui está a autorização disruptiva:</strong> Sync com
+enable: true permite ao TALM remediar. Push sozinho não inicia porque Auto Sync
+está desligado. Uma vez habilitada a sequência, você não precisa sincronizar
+uma Application para cada spoke: o TALM coordena os lotes.</p>
+<p>Não altere a policy raiz para enforce. Não use uma label batch como substituto
+do limite de concorrência. Sync waves do Argo CD não substituem blockingCRs nem
+a observação da conclusão de um upgrade.</p>
+
+<h2 id="validacao">12. Acompanhe até a conclusão real</h2>
+<pre><code># No hub:
+oc get clustergroupupgrades.ran.openshift.io -n talm-upgrades
+oc describe clustergroupupgrade fleet-4-19-55 -n talm-upgrades
+oc get clustergroupupgrade fleet-4-19-55 -n talm-upgrades   -o jsonpath='{.status.remediationPlan}{"\n"}{.status.conditions}{"\n"}'
+oc get policies.policy.open-cluster-management.io -A
+
+# No spoke, usando seu contexto/kubeconfig:
+oc get clusterversion version
+oc get co
+oc get nodes
+oc get mcp</code></pre>
+<p>Synced significa que o Argo CD aplicou o plano. Succeeded no CGU significa
+que as verificações das policies da campanha foram satisfeitas. Confirme também
+o estado dos clusters e os testes de aplicação. Não interprete a falta de jobs
+ClusterCurator como erro: TALM usa outro mecanismo de coordenação.</p>
+<p>Mantenha a seleção estável durante a execução. Ao concluir, registre resultados
+e arquive a campanha com cuidado. Crie novos nomes de CGU para uma campanha nova.
+A policy intermediária pode voltar a NonCompliant quando o cluster chega à 4.20;
+isso não autoriza reaplicá-la em enforce nem tentar retornar à 4.19.</p>
+
+<h2 id="problemas">13. Diagnóstico por etapa</h2>
+<table><thead><tr><th>Sintoma</th><th>Verificação</th></tr></thead><tbody>
+<tr><td>Application não aparece</td><td>Confirme se talm/applications foi cadastrado no namespace da instância correta. Um arquivo no Git sozinho não cria uma Application.</td></tr>
+<tr><td>Git inacessível</td><td>Veja Connection Status e credenciais do repositório. O login RHBK não concede acesso ao GitHub.</td></tr>
+<tr><td>forbidden ao criar CGU ou Policy</td><td>Confira ServiceAccount, Role e RoleBinding do bootstrap; não conceda cluster-admin ao controller para contornar.</td></tr>
+<tr><td>Erro ao vincular infra</td><td>Verifique o ClusterSet e a permissão bind do administrador que prepara o bootstrap.</td></tr>
+<tr><td>no matches for kind ClusterGroupUpgrade</td><td>O operador/CRD ainda não está pronto ou o contexto está errado. Aguarde instalação antes do Sync de campanhas.</td></tr>
+<tr><td>Nenhum cluster selecionado</td><td>Compare labels, ClusterSet, PlacementDecisions e exclusão do hub. Não remova filtros para selecionar a frota inteira sem revisão.</td></tr>
+<tr><td>Campanha não começa</td><td>Veja enable, validação de policies, estado dos agentes e blockingCRs. Na segunda etapa, aguardar a primeira é esperado.</td></tr>
+<tr><td>Campanha passa sem testar o aplicativo</td><td>A policy só comprova o que declarou. Inclua testes funcionais em uma automação complementar.</td></tr>
+<tr><td>Falha ou timeout</td><td>Interrompa aprovações e investigue. batchTimeoutAction: abort limita o avanço, mas não desfaz o CVO em andamento.</td></tr>
+</tbody></table>
+<p>Uma reversão de commit não é downgrade do OpenShift. O backup descrito em
+artigos históricos para SNO não equivale a restauração automática de todos os
+PVCs. Defina e teste o procedimento de recuperação antes de aprovar upgrades.</p>
+
+<h2>14. O que está pronto e o que falta provar</h2>
+<ul>
+<li>Pronto no Git: Subscription, bootstrap, RBAC limitado, policies em inform,
+seleção, CGUs dependentes e Applications manuais.</li>
+<li>Validação local: renderização Kustomize, consistência das referências e,
+quando disponível, schema de CGU compatível.</li>
+<li>Ainda não comprovado por este trabalho: instalação do operador, admissão
+dos recursos no seu hub e execução ponta a ponta em um spoke piloto.</li>
+<li>Fora do escopo automático: escolha segura de versão, backup/restauração,
+testes de negócio, preparação do registry espelho e avaliação de riscos.</li>
+</ul>
+<p>Não declare o ambiente funcional apenas porque os YAMLs existem. Considere-o
+operacional quando repositório, permissões, operador, agentes, policies e CGUs
+forem validados e uma campanha piloto autorizada concluir com sucesso.</p>
+<h2>Referências e manutenção</h2>
+<p><a href="https://www.redhat.com/en/blog/how-to-use-the-topology-aware-lifecycle-manager">Artigo TALM da Red Hat</a> |
+<a href="https://docs.redhat.com/en/documentation/openshift_container_platform/4.18/html/edge_computing/cnf-talm-for-cluster-updates">TALM no OpenShift 4.18</a> |
+<a href="https://docs.redhat.com/en/documentation/red_hat_advanced_cluster_management_for_kubernetes/2.14/html-single/clusters/clusters">ClusterSets e RBAC no ACM 2.14</a> |
+<a href="https://argo-cd.readthedocs.io/en/stable/operator-manual/declarative-setup/">Configuração declarativa do Argo CD</a>.</p>
+<p><a href="../../talm/index.html">Guia resumido do repositório</a>.</p>
+<p>Este artigo é documentação independente. Os YAMLs exibidos são exemplos
+incorporados ao HTML: publicar este arquivo não instala operadores nem inicia
+atualizações. A pasta docs/artigos não deve ser usada como origem de uma
+Application do Argo CD.</p>
+</body>
+</html>
