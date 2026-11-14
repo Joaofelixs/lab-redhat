@@ -1,13 +1,14 @@
 apiVersion: cluster.open-cluster-management.io/v1beta1
 kind: ClusterCurator
 metadata:
-  name: upgrade-4-18-56
+  name: upgrade-4-20-46
   annotations:
     argocd.argoproj.io/sync-options: Prune=false
 spec:
   desiredCuration: upgrade
   upgrade:
-    # Candidate seen in local-cluster availableUpdates; approve per target first.
-    channel: stable-4.18
-    desiredUpdate: 4.18.56
-    monitorTimeout: 120
+    # Validate each hop in the target cluster; the final hop has a conditional risk.
+    channel: stable-4.20
+    intermediateUpdate: 4.19.55
+    desiredUpdate: 4.20.46
+    monitorTimeout: 180

@@ -18,8 +18,8 @@
 para criar recursos ClusterCurator no hub ACM. O ClusterCurator solicita e acompanha
 a atualizacao; o Cluster Version Operator de cada OpenShift executa o upgrade.</p>
 <p><strong>Estado inicial seguro:</strong> nenhum cluster selecionado e nenhuma
-sincronizacao automatica. O exemplo usa 4.18.56 como candidata observada no
-availableUpdates do lab, nao como aprovacao de atualizacao.</p>
+sincronizacao automatica. A campanha proposta passa por 4.19.55 e termina em
+4.20.46. Registrar essas versoes no Git nao aprova nem inicia a atualizacao.</p>
 
 <h2>1. Entender os componentes</h2>
 <ul>
@@ -68,9 +68,34 @@ A instancia Argo CD deve ter permissao para gerenciar ClusterCurator nesses
 namespaces; AppProject restringe operacoes, mas nao concede RBAC Kubernetes.</p>
 
 <h2>4. Escolher versao e piloto no Git</h2>
-<p>Edite upgrades/ocp/cluster-curator.yaml: ajuste desiredUpdate, channel e o
-nome da campanha. Nao reutilize cegamente a versao candidata para toda a frota:
+<p>Edite upgrades/ocp/cluster-curator.yaml: ajuste desiredUpdate, intermediateUpdate,
+channel e o nome da campanha. Nao reutilize cegamente a versao candidata para toda a frota:
 ela precisa estar disponivel no caminho suportado de cada cluster selecionado.</p>
+<pre><code>spec:
+  desiredCuration: upgrade
+  upgrade:
+    channel: stable-4.20
+    intermediateUpdate: 4.19.55
+    desiredUpdate: 4.20.46
+    monitorTimeout: 180</code></pre>
+<p><strong>intermediateUpdate</strong> e a versao completa da etapa intermediaria;
+<strong>desiredUpdate</strong> e o destino final. Neste lab, a versao de origem
+verificada foi 4.18.42: o fluxo proposto e 4.18.42 → 4.19.55 → 4.20.46.
+Essa configuracao solicita a sequencia automatica; nao existe uma aprovacao
+manual entre os saltos. Para revisar a 4.19 antes de continuar, crie duas
+campanhas separadas, primeiro com desiredUpdate: 4.19.55 e channel: stable-4.19,
+sem intermediateUpdate, e depois com desiredUpdate: 4.20.46 e channel:
+stable-4.20, tambem sem intermediateUpdate.</p>
+<p><strong>Consulta ao grafo em 13/11/2026, arquitetura amd64:</strong>
+stable-4.19 anunciou o salto 4.18.42 → 4.19.55. O salto 4.19.55 → 4.20.46
+apareceu como condicional, com risco VSphereConfigCloudControllerCrash.
+Nao foi considerado um salto incondicionalmente recomendado. O CVO de cada
+cluster precisa avaliar a condicao de risco, a plataforma e os demais
+pre-requisitos. O lab usa plataforma None, mas isso nao dispensa a avaliacao.
+Nao use force para ignorar a condicao. O grafo e dinamico; consulte novamente
+no momento da aprovacao. A disponibilidade do primeiro salto em stable-4.19
+nao garante que o curator conseguira resolver toda a sequencia com o canal
+stable-4.20: confira o caminho no canal da campanha antes de sincronizar.</p>
 <p>Depois, em gitops-upgrades/01-applicationset.yaml, substitua elements: [] por
 uma lista explicita. Exemplo ilustrativo, nao um cluster existente:</p>
 <pre><code>elements:
@@ -98,7 +123,7 @@ o upgrade do OpenShift terminou.</p>
 <h2>6. Acompanhar e liberar o proximo lote</h2>
 <p>No hub:</p>
 <pre><code>oc get clustercurator -n cluster-dev-01
-oc describe clustercurator upgrade-4-18-56 -n cluster-dev-01
+oc describe clustercurator upgrade-4-20-46 -n cluster-dev-01
 oc get jobs,pods -n cluster-dev-01</code></pre>
 <p>No cluster atualizado, valide novamente versao, operators, nodes, MCPs e
 aplicacoes. Somente depois libere novas entradas e sincronize o proximo lote.
