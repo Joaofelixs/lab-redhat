@@ -1,3 +1,35 @@
+apiVersion: cluster.open-cluster-management.io/v1beta2
+kind: ManagedClusterSetBinding
+metadata:
+  name: hml
+  namespace: policies-acm
+spec:
+  clusterSet: hml
+---
+apiVersion: cluster.open-cluster-management.io/v1beta2
+kind: ManagedClusterSetBinding
+metadata:
+  name: prod
+  namespace: policies-acm
+spec:
+  clusterSet: prod
+---
+apiVersion: cluster.open-cluster-management.io/v1beta1
+kind: Placement
+metadata:
+  name: placement-gatekeeper
+  namespace: policies-acm
+spec:
+  clusterSets:
+  - infra
+  - hml
+  - prod
+  predicates:
+  - requiredClusterSelector:
+      labelSelector:
+        matchLabels:
+          vendor: OpenShift
+---
 apiVersion: policy.open-cluster-management.io/v1
 kind: PlacementBinding
 metadata:
@@ -6,7 +38,7 @@ metadata:
 placementRef:
   apiGroup: cluster.open-cluster-management.io
   kind: Placement
-  name: placement-gitops-apps
+  name: placement-gatekeeper
 subjects:
 - apiGroup: policy.open-cluster-management.io
   kind: Policy
