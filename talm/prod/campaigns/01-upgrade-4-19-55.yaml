@@ -1,0 +1,26 @@
+apiVersion: ran.openshift.io/v1alpha1
+kind: ClusterGroupUpgrade
+metadata:
+  name: prod-4-19-55
+  namespace: talm-upgrades-prod
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false
+spec:
+  enable: false
+  preCaching: false
+  clusterLabelSelectors:
+  - matchLabels:
+      name: cluster-xgdnd
+      cluster.open-cluster-management.io/clusterset: prod
+      vendor: OpenShift
+    matchExpressions:
+    - key: local-cluster
+      operator: NotIn
+      values: ["true"]
+  managedPolicies:
+  - prod-upgrade-4-19-55
+  remediationStrategy:
+    canaries: [cluster-xgdnd]
+    maxConcurrency: 1
+    timeout: 240
+  batchTimeoutAction: abort

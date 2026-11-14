@@ -1,0 +1,6 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- selection.yaml
+- upgrade-4-19-55.yaml
+- upgrade-4-20-46.yaml

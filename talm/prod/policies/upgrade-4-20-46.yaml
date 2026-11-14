@@ -1,0 +1,40 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata:
+  name: prod-upgrade-4-20-46
+  namespace: talm-upgrades-prod
+spec:
+  disabled: false
+  remediationAction: inform
+  policy-templates:
+  - objectDefinition:
+      apiVersion: policy.open-cluster-management.io/v1
+      kind: ConfigurationPolicy
+      metadata:
+        name: prod-upgrade-4-20-46
+      spec:
+        remediationAction: inform
+        severity: high
+        object-templates:
+        - complianceType: musthave
+          objectDefinition:
+            apiVersion: config.openshift.io/v1
+            kind: ClusterVersion
+            metadata:
+              name: version
+            spec:
+              upstream: https://api.openshift.com/api/upgrades_info/v1/graph
+              channel: stable-4.20
+              desiredUpdate:
+                version: 4.20.46
+            status:
+              history:
+              - version: 4.20.46
+                state: Completed
+              conditions:
+              - type: Available
+                status: "True"
+              - type: Progressing
+                status: "False"
+              - type: Failing
+                status: "False"

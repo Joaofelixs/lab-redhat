@@ -1,0 +1,36 @@
+apiVersion: cluster.open-cluster-management.io/v1beta1
+kind: Placement
+metadata:
+  name: talm-prod
+  namespace: talm-upgrades-prod
+spec:
+  clusterSets:
+  - prod
+  predicates:
+  - requiredClusterSelector:
+      labelSelector:
+        matchLabels:
+          name: cluster-xgdnd
+          cluster.open-cluster-management.io/clusterset: prod
+          vendor: OpenShift
+        matchExpressions:
+        - key: local-cluster
+          operator: NotIn
+          values: ["true"]
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: PlacementBinding
+metadata:
+  name: talm-prod-inform
+  namespace: talm-upgrades-prod
+placementRef:
+  apiGroup: cluster.open-cluster-management.io
+  kind: Placement
+  name: talm-prod
+subjects:
+- apiGroup: policy.open-cluster-management.io
+  kind: Policy
+  name: prod-upgrade-4-19-55
+- apiGroup: policy.open-cluster-management.io
+  kind: Policy
+  name: prod-upgrade-4-20-46
